@@ -63,6 +63,8 @@ class FederatedDataManager:
         self.iid = iid
         self.alpha = alpha
         self.num_shards = num_shards
+        self.input_channels = 3
+        self.num_classes = 10
 
         self.train_dataset, self.test_dataset = self._load_dataset()
         self.client_indices = self._partition_data()
@@ -77,6 +79,8 @@ class FederatedDataManager:
             ValueError: 数据集名称不受支持时抛出。
         """
         if self.dataset_name == "cifar10":
+            self.input_channels = 3
+            self.num_classes = 10
             transform = transforms.Compose(
                 [
                     transforms.ToTensor(),
@@ -97,7 +101,32 @@ class FederatedDataManager:
             )
             return train, test
 
+        if self.dataset_name == "cifar100":
+            self.input_channels = 3
+            self.num_classes = 100
+            transform = transforms.Compose(
+                [
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                ]
+            )
+            train = datasets.CIFAR100(
+                root=self.data_dir,
+                train=True,
+                download=True,
+                transform=transform,
+            )
+            test = datasets.CIFAR100(
+                root=self.data_dir,
+                train=False,
+                download=True,
+                transform=transform,
+            )
+            return train, test
+
         if self.dataset_name == "mnist":
+            self.input_channels = 1
+            self.num_classes = 10
             transform = transforms.Compose(
                 [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
             )

@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -35,6 +36,38 @@ class SmallDummyDataManager(FederatedDataManager):
         train_dataset = torch.utils.data.TensorDataset(x_train, y_train)
         test_dataset = torch.utils.data.TensorDataset(x_test, y_test)
         return train_dataset, test_dataset
+
+
+class _FakeTorchvisionDataset(torch.utils.data.Dataset):
+    """用于替代 torchvision 数据集避免下载。"""
+
+    def __init__(self, *args, **kwargs):
+        _ = args
+        _ = kwargs
+        self.features = torch.randn(12, 3, 32, 32)
+        self.labels = torch.randint(0, 10, (12,))
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __getitem__(self, idx: int):
+        return self.features[idx], self.labels[idx]
+
+
+class _FakeMNISTDataset(torch.utils.data.Dataset):
+    """用于替代 MNIST 的单通道数据集。"""
+
+    def __init__(self, *args, **kwargs):
+        _ = args
+        _ = kwargs
+        self.features = torch.randn(12, 1, 28, 28)
+        self.labels = torch.randint(0, 10, (12,))
+
+    def __len__(self) -> int:
+        return len(self.labels)
+
+    def __getitem__(self, idx: int):
+        return self.features[idx], self.labels[idx]
 
 
 class TestFederatedDataset(unittest.TestCase):
@@ -111,6 +144,22 @@ class TestFederatedDataManagerValidation(unittest.TestCase):
     def test_iid_partition_raises_when_clients_exceed_samples(self) -> None:
         with self.assertRaises(ValueError):
             SmallDummyDataManager(dataset_name="dummy", num_clients=8, iid=True)
+
+    @patch(
+        "src.datasets.federated_dataset.datasets.CIFAR100", new=_FakeTorchvisionDataset
+    )
+    def test_cifar100_is_supported(self) -> None:
+        manager = FederatedDataManager(
+            dataset_name="cifar100",
+            num_clients=3,
+            iid=True,
+        )
+        self.assertEqual(len(manager.client_indices), 3)
+
+    @patch("src.datasets.federated_dataset.datasets.MNIST", new=_FakeMNISTDataset)
+    def test_manager_sets_input_channels_for_mnist(self) -> None:
+        manager = FederatedDataManager(dataset_name="mnist", num_clients=3, iid=True)
+        self.assertEqual(manager.input_channels, 1)
 
 
 if __name__ == "__main__":

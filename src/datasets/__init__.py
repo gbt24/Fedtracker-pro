@@ -10,5 +10,13 @@
 """
 
 from .federated_dataset import FederatedDataManager, FederatedDataset
+from .cifar import get_cifar10_datasets, get_cifar100_datasets
+from .mnist import get_mnist_datasets
 
-__all__ = ["FederatedDataset", "FederatedDataManager"]
+__all__ = [
+    "FederatedDataset",
+    "FederatedDataManager",
+    "get_cifar10_datasets",
+    "get_cifar100_datasets",
+    "get_mnist_datasets",
+]

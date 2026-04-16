@@ -10,5 +10,16 @@
 """
 
 from .resnet import BasicBlock, ResNet, ResNet18, ResNet34
+from .vgg import VGG, VGG11, VGG16
+from .mobilenet import MobileNetV2
 
-__all__ = ["BasicBlock", "ResNet", "ResNet18", "ResNet34"]
+__all__ = [
+    "BasicBlock",
+    "ResNet",
+    "ResNet18",
+    "ResNet34",
+    "VGG",
+    "VGG11",
+    "VGG16",
+    "MobileNetV2",
+]
