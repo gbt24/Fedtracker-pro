@@ -11,10 +11,18 @@
 
 from .watermark import BaseWatermark, ContinualLearningWatermark
 from .fingerprint import BaseFingerprint, ParametricFingerprint
+from .adaptive_allocation import AdaptiveAllocator
+from .crypto_verification import CryptographicVerification
+from .unlearning_guided import UnlearningGuidedRelocation
+from .multi_layer_verify import MultiLayerVerifier
 
 __all__ = [
     "BaseWatermark",
     "ContinualLearningWatermark",
     "BaseFingerprint",
     "ParametricFingerprint",
+    "AdaptiveAllocator",
+    "CryptographicVerification",
+    "UnlearningGuidedRelocation",
+    "MultiLayerVerifier",
 ]
