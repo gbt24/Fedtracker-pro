@@ -367,14 +367,14 @@ framework.train()
 
 ### 可用模型
 
-| 模型 | 工厂函数 | 参数量 | 适用场景 |
-|------|----------|--------|----------|
-| ResNet-18 | `ResNet18(num_classes)` | ~11M | 基线实验（CIFAR-10） |
-| ResNet-34 | `ResNet34(num_classes)` | ~21M | 大模型验证 |
-| VGG-11 | `VGG11(num_classes)` | ~133M | 传统架构对比 |
-| VGG-16 | `VGG16(num_classes)` | ~138M | 传统架构对比（CIFAR-100） |
-| MobileNetV2 | `MobileNetV2(num_classes)` | ~3.5M | 移动端/轻量级场景 |
-| DiffusionUNet | `DiffusionUNet(in_channels, base_channels)` | ~2M | 扩散去噪子模块（需偶数空间维度） |
+| 模型            | 工厂函数                                        | 参数量   | 适用场景              |
+| ------------- | ------------------------------------------- | ----- | ----------------- |
+| ResNet-18     | `ResNet18(num_classes)`                     | ~11M  | 基线实验（CIFAR-10）    |
+| ResNet-34     | `ResNet34(num_classes)`                     | ~21M  | 大模型验证             |
+| VGG-11        | `VGG11(num_classes)`                        | ~133M | 传统架构对比            |
+| VGG-16        | `VGG16(num_classes)`                        | ~138M | 传统架构对比（CIFAR-100） |
+| MobileNetV2   | `MobileNetV2(num_classes)`                  | ~3.5M | 移动端/轻量级场景         |
+| DiffusionUNet | `DiffusionUNet(in_channels, base_channels)` | ~2M   | 扩散去噪子模块（需偶数空间维度）  |
 
 ---
 
