@@ -1,0 +1,85 @@
+# 联邦学习配置
+federated:
+  num_clients: 50
+  client_fraction: 0.1
+  global_rounds: 200
+  local_epochs: 5
+  local_batch_size: 64
+  local_lr: 0.01
+  global_lr: 1.0
+  optimizer: "sgd"
+  momentum: 0.9
+  weight_decay: 0.0001
+
+# 数据配置
+data:
+  dataset: "cifar10"
+  data_dir: "./data"
+  iid: false
+  alpha: 0.5
+  num_shards: 200
+
+# 模型配置
+model:
+  name: "resnet18"
+  num_classes: 10
+  pretrained: false
+
+# 水印配置
+watermark:
+  enabled: true
+  type: "cl_backdoor"
+  trigger_size: 100
+  watermark_epochs: 5
+  watermark_lr: 0.001
+  cl_memory_size: 100
+  gem_margin: 0.5
+
+# 指纹配置
+fingerprint:
+  enabled: true
+  type: "parametric"
+  fingerprint_dim: 128
+  embedding_strength: 0.1
+  min_strength: 0.05
+
+# FedAWM 配置
+adaptive_allocation:
+  enabled: true
+  evaluation_period: 10
+  beta: 0.1
+  min_allocation: 0.05
+
+# 密码学配置
+crypto:
+  enabled: true
+  scheme: "ecdsa"
+  key_size: 256
+  hash_algorithm: "sha256"
+
+# 遗忘增强配置
+unlearning:
+  enabled: true
+  simulation_steps: 100
+  stability_threshold: 0.8
+  low_freq_ratio: 0.8
+
+# 三层验证配置
+verification:
+  level1_threshold: 0.75
+  level3_threshold: 0.9
+
+# 系统配置
+system:
+  device: "cuda"
+  num_workers: 4
+  seed: 42
+  log_dir: "./logs"
+  checkpoint_dir: "./checkpoints"
+  save_frequency: 10
+
+# 实验配置
+experiment:
+  name: "default_experiment"
+  tags: []
+  notes: ""
