@@ -93,9 +93,9 @@ fedtracker-pro/
 │   ├── models/                    # 模型定义（开发中）
 │   ├── utils/                     # ✅ 工具函数（已完成）
 │   └── datasets/                  # 数据集（开发中）
-├── experiments/                   # 实验脚本（开发中）
+├── experiments/                   # 实验脚本（阶段8已补齐）
 ├── tests/                        # ✅ 测试代码
-├── configs/                       # 配置文件（开发中）
+├── configs/                       # 配置文件（包含 default.yaml）
 ├── scripts/                       # 工具脚本（开发中）
 ├── docs/                          # 文档（开发中）
 ├── requirements.txt               # ✅ 依赖列表
@@ -103,6 +103,16 @@ fedtracker-pro/
 ```
 
 ## ✅ 当前状态
+
+### 阶段8: 实验与配置 🔄 进行中
+
+已完成实验脚本与默认配置：
+
+- `experiments/exp_baseline.py`
+- `experiments/exp_ablation.py`
+- `experiments/exp_robustness.py`
+- `experiments/exp_scalability.py`
+- `configs/default.yaml`
 
 ### 阶段1: 基础工具模块 ✅ 已完成
 
