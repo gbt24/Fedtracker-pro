@@ -1,17 +1,35 @@
-"""消融实验配置脚本。
+"""消融实验脚本。
 
 本文件属于 FedTracker-Pro 项目
-功能: 提供消融实验分组定义
-依赖: 无
+功能: 执行 6 组防御开关的消融实验并评估鲁棒性
+依赖: src.core, experiments.exp_robustness, experiments.utils
 
 代码生成来源: implementation_plan.md
 章节: 第五阶段 实验系统
-生成日期: 2026-04-16
+生成日期: 2026-04-17
 """
 
 from __future__ import annotations
 
-from typing import Dict
+import argparse
+import copy
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.core.config import Config
+from src.core.fed_tracker_pro import FedTrackerPro
+from src.utils.data_utils import set_seed
+
+from experiments.exp_robustness import build_robustness_attacks
+from experiments.utils import (
+    build_model_from_config,
+    create_experiment_dir,
+    save_results,
+)
 
 
 def get_ablation_groups() -> Dict[str, Dict[str, bool]]:
@@ -60,3 +78,93 @@ def get_ablation_groups() -> Dict[str, Dict[str, bool]]:
             "unlearning": True,
         },
     }
+
+
+def _apply_group_flags(config: Config, flags: Dict[str, bool]) -> None:
+    """将消融组开关写入配置。"""
+    config.watermark.enabled = flags["watermark"]
+    config.fingerprint.enabled = flags["fingerprint"]
+    config.adaptive.enabled = flags["adaptive"]
+    config.crypto.enabled = flags["crypto"]
+    config.unlearning.enabled = flags["unlearning"]
+
+
+def run_ablation_experiment(
+    config_path: str,
+    num_rounds: Optional[int] = None,
+    output_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    """运行消融实验并返回结果。"""
+    base_config = Config(config_path)
+    set_seed(base_config.system.seed)
+
+    all_results: Dict[str, Dict[str, float]] = {}
+    groups = get_ablation_groups()
+    for group_name, flags in groups.items():
+        config = copy.deepcopy(base_config)
+        _apply_group_flags(config, flags)
+
+        model = build_model_from_config(config)
+        framework = FedTrackerPro(config)
+        framework.initialize(model)
+        framework.train(num_rounds=num_rounds)
+
+        if framework.data_manager is None:
+            raise RuntimeError("Data manager is not initialized")
+
+        attacks = build_robustness_attacks(device=framework.device)
+        test_loader = framework.data_manager.get_test_loader()
+        all_results[group_name] = framework.evaluate_attack_robustness(
+            attacks, test_loader
+        )
+
+    base_dir = output_dir if output_dir is not None else "./experiments/results"
+    exp_dir = create_experiment_dir(base_dir=base_dir)
+    result_path = save_results(all_results, exp_dir, "ablation_results.json")
+
+    return {
+        "results": all_results,
+        "experiment_dir": exp_dir,
+        "results_path": result_path,
+    }
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """解析命令行参数。"""
+    parser = argparse.ArgumentParser(description="运行 FedTracker-Pro 消融实验")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/default.yaml",
+        help="配置文件路径",
+    )
+    parser.add_argument(
+        "--num-rounds",
+        type=int,
+        default=None,
+        help="覆盖配置中的全局训练轮数",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="实验结果输出根目录（默认: ./experiments/results）",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """命令行入口。"""
+    args = parse_args(argv)
+    payload = run_ablation_experiment(
+        config_path=args.config,
+        num_rounds=args.num_rounds,
+        output_dir=args.output_dir,
+    )
+    print(f"[ablation] results saved to: {payload['results_path']}")
+    print(payload["results"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

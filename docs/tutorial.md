@@ -20,13 +20,13 @@ make lint
 ## 3) Baseline experiment
 
 ```bash
-python experiments/exp_baseline.py --config configs/default.yaml
+python -m experiments.exp_baseline --config configs/default.yaml
 ```
 
 ## 4) Ablation experiment
 
 ```bash
-python experiments/exp_ablation.py --config configs/default.yaml
+python -m experiments.exp_ablation --config configs/default.yaml
 ```
 
 ## 5) Use helper scripts

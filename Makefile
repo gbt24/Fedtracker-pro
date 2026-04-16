@@ -17,10 +17,10 @@ format:
 	@echo "Format hooks are not configured yet"
 
 run-baseline:
-	python experiments/exp_baseline.py --config configs/default.yaml
+	python -m experiments.exp_baseline --config configs/default.yaml
 
 run-ablation:
-	python experiments/exp_ablation.py --config configs/default.yaml
+	python -m experiments.exp_ablation --config configs/default.yaml
 
 clean:
 	rm -rf build dist *.egg-info .pytest_cache .coverage htmlcov

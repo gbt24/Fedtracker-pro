@@ -2,9 +2,11 @@
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import torch
 import yaml
@@ -134,6 +136,140 @@ class TestExperimentScripts(unittest.TestCase):
             "system",
         ]:
             self.assertIn(key, cfg)
+
+
+class TestExperimentCliEntry(unittest.TestCase):
+    def test_baseline_main_delegates_to_runner(self) -> None:
+        from experiments import exp_baseline
+
+        with (
+            patch.object(
+                exp_baseline,
+                "run_baseline_experiment",
+                return_value={
+                    "results": {"fine_tuning": 1.0},
+                    "results_path": "a.json",
+                },
+            ) as mock_run,
+            patch("builtins.print") as mock_print,
+        ):
+            exit_code = exp_baseline.main(
+                ["--config", "configs/default.yaml", "--num-rounds", "1"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        mock_run.assert_called_once_with(
+            config_path="configs/default.yaml",
+            num_rounds=1,
+            output_dir=None,
+        )
+        mock_print.assert_called()
+
+    def test_ablation_main_delegates_to_runner(self) -> None:
+        from experiments import exp_ablation
+
+        with (
+            patch.object(
+                exp_ablation,
+                "run_ablation_experiment",
+                return_value={
+                    "results": {"full": {"fine_tuning": 1.0}},
+                    "results_path": "b.json",
+                },
+            ) as mock_run,
+            patch("builtins.print") as mock_print,
+        ):
+            exit_code = exp_ablation.main(
+                ["--config", "configs/default.yaml", "--num-rounds", "1"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        mock_run.assert_called_once_with(
+            config_path="configs/default.yaml",
+            num_rounds=1,
+            output_dir=None,
+        )
+        mock_print.assert_called()
+
+    def test_robustness_main_delegates_to_runner(self) -> None:
+        from experiments import exp_robustness
+
+        with (
+            patch.object(
+                exp_robustness,
+                "run_robustness_experiment",
+                return_value={"results": {"ambiguity": 1.0}, "results_path": "c.json"},
+            ) as mock_run,
+            patch("builtins.print") as mock_print,
+        ):
+            exit_code = exp_robustness.main(
+                ["--config", "configs/default.yaml", "--num-rounds", "1"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        mock_run.assert_called_once_with(
+            config_path="configs/default.yaml",
+            num_rounds=1,
+            output_dir=None,
+        )
+        mock_print.assert_called()
+
+    def test_scalability_main_delegates_to_runner(self) -> None:
+        from experiments import exp_scalability
+
+        with (
+            patch.object(
+                exp_scalability,
+                "run_scalability_experiment",
+                return_value={
+                    "results": {"clients_10": {"accuracy": 10.0, "loss": 1.0}},
+                    "results_path": "d.json",
+                },
+            ) as mock_run,
+            patch("builtins.print") as mock_print,
+        ):
+            exit_code = exp_scalability.main(
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--min-clients",
+                    "10",
+                    "--max-clients",
+                    "20",
+                    "--step",
+                    "10",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        mock_run.assert_called_once_with(
+            config_path="configs/default.yaml",
+            min_clients=10,
+            max_clients=20,
+            step=10,
+            num_rounds=1,
+            output_dir=None,
+        )
+        mock_print.assert_called()
+
+    def test_module_help_has_no_runtime_warning(self) -> None:
+        repo_root = os.path.join(os.path.dirname(__file__), "../..")
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "experiments.exp_baseline",
+                "--help",
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertNotIn("RuntimeWarning", completed.stderr)
 
 
 if __name__ == "__main__":
