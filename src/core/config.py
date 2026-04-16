@@ -74,6 +74,7 @@ class FingerprintConfig:
     fingerprint_dim: int = 128
     embedding_strength: float = 0.1
     min_strength: float = 0.05
+    identification_threshold: float = 0.5
 
 
 @dataclass
@@ -112,6 +113,7 @@ class VerificationConfig:
 
     level1_threshold: float = 0.75
     level3_threshold: float = 0.9
+    cross_verify_client_id: bool = True
 
 
 @dataclass

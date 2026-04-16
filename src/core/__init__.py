@@ -12,6 +12,7 @@
 from .config import Config, get_config, set_config
 from .base_client import BaseClient, StandardClient
 from .base_server import BaseServer
+from .protected_client import ProtectedClient
 from .fed_tracker_pro import FedTrackerPro
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "set_config",
     "BaseClient",
     "StandardClient",
+    "ProtectedClient",
     "BaseServer",
     "FedTrackerPro",
 ]

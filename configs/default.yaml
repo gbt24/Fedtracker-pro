@@ -42,6 +42,7 @@ fingerprint:
   fingerprint_dim: 128
   embedding_strength: 0.1
   min_strength: 0.05
+  identification_threshold: 0.5
 
 # FedAWM 配置
 adaptive_allocation:
@@ -68,6 +69,7 @@ unlearning:
 verification:
   level1_threshold: 0.75
   level3_threshold: 0.9
+  cross_verify_client_id: true
 
 # 系统配置
 system:

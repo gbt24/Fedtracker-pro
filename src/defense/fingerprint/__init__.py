@@ -11,5 +11,6 @@
 
 from .base_fingerprint import BaseFingerprint
 from .param_fingerprint import ParametricFingerprint
+from .client_fingerprint_registry import ClientFingerprintRegistry
 
-__all__ = ["BaseFingerprint", "ParametricFingerprint"]
+__all__ = ["BaseFingerprint", "ParametricFingerprint", "ClientFingerprintRegistry"]

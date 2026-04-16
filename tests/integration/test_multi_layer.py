@@ -17,15 +17,18 @@ class _WatermarkStub:
         return 0.95
 
 
-class _FingerprintStub:
-    def verify(self, model: nn.Module) -> float:
-        _ = model
-        return 0.9
+class _RegistryStub:
+    def identify_client(self, model, candidate_ids=None):
+        _ = model, candidate_ids
+        return 0, 0.9
 
 
 def test_multi_layer_verify_passes_all_levels() -> None:
     model = nn.Linear(4, 2)
-    verifier = MultiLayerVerifier(_WatermarkStub(), _FingerprintStub())
+    verifier = MultiLayerVerifier(
+        watermark=_WatermarkStub(),
+        fingerprint_registry=_RegistryStub(),
+    )
 
     result = verifier.verify_ownership(model=model, crypto_result={"is_valid": True})
 

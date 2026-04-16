@@ -22,11 +22,12 @@ import torch.nn as nn
 from .base_client import StandardClient
 from .base_server import BaseServer
 from .config import Config
+from .protected_client import ProtectedClient
 from ..aggregation.fed_avg import FedAvgAggregator
 from ..datasets.federated_dataset import FederatedDataManager
 from ..defense.adaptive_allocation import AdaptiveAllocator
 from ..defense.crypto_verification import CryptographicVerification
-from ..defense.fingerprint.param_fingerprint import ParametricFingerprint
+from ..defense.fingerprint.client_fingerprint_registry import ClientFingerprintRegistry
 from ..defense.unlearning_guided import UnlearningGuidedRelocation
 from ..defense.watermark.cl_watermark import ContinualLearningWatermark
 from ..utils.logger import get_logger
@@ -55,7 +56,7 @@ class FedTrackerPro:
         self.aggregator: Optional[FedAvgAggregator] = None
 
         self.watermarker: Optional[ContinualLearningWatermark] = None
-        self.fingerprinter: Optional[ParametricFingerprint] = None
+        self.fingerprint_registry: Optional[ClientFingerprintRegistry] = None
         self.adaptive_allocator: Optional[AdaptiveAllocator] = None
         self.crypto_verifier: Optional[CryptographicVerification] = None
         self.unlearning_guide: Optional[UnlearningGuidedRelocation] = None
@@ -87,33 +88,8 @@ class FedTrackerPro:
         )
         self.global_model = self.server.global_model
 
-        self._create_clients()
         self._setup_defense_modules()
-
-    def _create_clients(self) -> None:
-        """创建联邦客户端。"""
-        if self.data_manager is None or self.global_model is None:
-            raise RuntimeError("Framework not initialized")
-
-        self.clients = []
-        for client_id in range(self.config.federated.num_clients):
-            train_loader = self.data_manager.get_client_loader(
-                client_id=client_id,
-                batch_size=self.config.federated.local_batch_size,
-                shuffle=True,
-            )
-            client = StandardClient(
-                client_id=client_id,
-                model=copy.deepcopy(self.global_model),
-                train_loader=train_loader,
-                device=self.device,
-                local_epochs=self.config.federated.local_epochs,
-                local_lr=self.config.federated.local_lr,
-                optimizer_name=self.config.federated.optimizer,
-                momentum=self.config.federated.momentum,
-                weight_decay=self.config.federated.weight_decay,
-            )
-            self.clients.append(client)
+        self._create_clients()
 
     def _setup_defense_modules(self) -> None:
         """按配置启用防御模块。"""
@@ -127,12 +103,16 @@ class FedTrackerPro:
             )
 
         if self.config.fingerprint.enabled:
-            self.fingerprinter = ParametricFingerprint(
+            self.fingerprint_registry = ClientFingerprintRegistry(
                 fingerprint_dim=self.config.fingerprint.fingerprint_dim,
                 embedding_strength=self.config.fingerprint.embedding_strength,
                 min_strength=self.config.fingerprint.min_strength,
                 device=self.device,
-                seed=self.config.system.seed,
+                base_seed=self.config.system.seed,
+                identification_threshold=self.config.fingerprint.identification_threshold,
+            )
+            self.fingerprint_registry.register_clients(
+                list(range(self.config.federated.num_clients))
             )
 
         if self.config.adaptive.enabled:
@@ -158,6 +138,48 @@ class FedTrackerPro:
                 low_freq_ratio=self.config.unlearning.low_freq_ratio,
                 device=self.device,
             )
+
+    def _create_clients(self) -> None:
+        """创建联邦客户端。"""
+        if self.data_manager is None or self.global_model is None:
+            raise RuntimeError("Framework not initialized")
+
+        self.clients = []
+        for client_id in range(self.config.federated.num_clients):
+            train_loader = self.data_manager.get_client_loader(
+                client_id=client_id,
+                batch_size=self.config.federated.local_batch_size,
+                shuffle=True,
+            )
+
+            if self.fingerprint_registry is not None:
+                fp = self.fingerprint_registry.get_fingerprint(client_id)
+                client = ProtectedClient(
+                    client_id=client_id,
+                    model=copy.deepcopy(self.global_model),
+                    train_loader=train_loader,
+                    fingerprinter=fp,
+                    crypto_verifier=self.crypto_verifier,
+                    device=self.device,
+                    local_epochs=self.config.federated.local_epochs,
+                    local_lr=self.config.federated.local_lr,
+                    optimizer_name=self.config.federated.optimizer,
+                    momentum=self.config.federated.momentum,
+                    weight_decay=self.config.federated.weight_decay,
+                )
+            else:
+                client = StandardClient(
+                    client_id=client_id,
+                    model=copy.deepcopy(self.global_model),
+                    train_loader=train_loader,
+                    device=self.device,
+                    local_epochs=self.config.federated.local_epochs,
+                    local_lr=self.config.federated.local_lr,
+                    optimizer_name=self.config.federated.optimizer,
+                    momentum=self.config.federated.momentum,
+                    weight_decay=self.config.federated.weight_decay,
+                )
+            self.clients.append(client)
 
     def _select_clients(self) -> list[int]:
         """按采样率随机选择客户端。"""
@@ -197,34 +219,47 @@ class FedTrackerPro:
         suspicious_model: nn.Module,
         candidate_clients: Optional[List[int]] = None,
     ) -> Tuple[bool, Optional[int], float]:
-        """执行三层验证并返回所有权判断。"""
+        """执行三层验证并返回所有权判断。
+
+        Returns:
+            (是否属于本 FL 系统, 泄露者 client_id, 置信度)
+        """
         if candidate_clients is None:
             candidate_clients = list(range(len(self.clients)))
         if not candidate_clients:
             return False, None, 0.0
 
-        best_client = int(candidate_clients[0])
-        best_similarity = 1.0
+        matched_id: Optional[int] = candidate_clients[0] if candidate_clients else None
+        similarity = 1.0
 
-        if self.fingerprinter is not None:
-            best_similarity = float(self.fingerprinter.verify(suspicious_model))
-            if best_similarity < self.config.verification.level1_threshold:
+        if self.fingerprint_registry is not None:
+            matched_id, similarity = self.fingerprint_registry.identify_client(
+                suspicious_model, candidate_clients
+            )
+            if similarity < self.config.verification.level1_threshold:
                 return False, None, 0.0
 
-        crypto_client: Optional[int] = best_client
         if self.crypto_verifier is not None:
             crypto_result = self.crypto_verifier.verify_model(suspicious_model)
             if not bool(crypto_result.get("is_valid", False)):
-                return False, None, best_similarity
+                return False, None, similarity
+            signed_client = crypto_result.get("client_id")
+            if (
+                self.config.verification.cross_verify_client_id
+                and signed_client is not None
+                and matched_id is not None
+                and matched_id != signed_client
+            ):
+                return False, None, similarity
 
         if self.watermarker is not None:
             wm_accuracy = self.watermarker.verify(suspicious_model)
             if wm_accuracy < self.config.verification.level3_threshold:
-                return False, crypto_client, (best_similarity + 1.0) / 2
-            confidence = (best_similarity + 1.0 + wm_accuracy) / 3
-            return True, crypto_client, float(confidence)
+                return False, matched_id, (similarity + 1.0) / 2
+            confidence = (similarity + 1.0 + wm_accuracy) / 3
+            return True, matched_id, float(confidence)
 
-        return True, crypto_client, float((best_similarity + 1.0) / 2)
+        return True, matched_id, float((similarity + 1.0) / 2)
 
     def _save_checkpoint(self, round_num: int) -> None:
         """保存训练检查点。"""

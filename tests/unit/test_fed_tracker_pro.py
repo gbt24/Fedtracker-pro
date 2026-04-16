@@ -78,6 +78,27 @@ class TestFedTrackerPro(unittest.TestCase):
         config.unlearning.enabled = False
         return config
 
+    def _build_config_with_fingerprint(self, num_clients: int = 3) -> Config:
+        config = Config()
+        config.system.device = "cpu"
+        config.system.save_frequency = 1
+        config.federated.num_clients = num_clients
+        config.federated.client_fraction = 1.0
+        config.federated.local_epochs = 1
+        config.federated.local_lr = 0.01
+        config.federated.local_batch_size = 8
+        config.federated.optimizer = "sgd"
+        config.fingerprint.enabled = True
+        config.fingerprint.fingerprint_dim = 32
+        config.fingerprint.embedding_strength = 0.02
+        config.fingerprint.min_strength = 0.01
+        config.fingerprint.identification_threshold = 0.5
+        config.watermark.enabled = False
+        config.adaptive.enabled = False
+        config.crypto.enabled = False
+        config.unlearning.enabled = False
+        return config
+
     def test_initialize_creates_server_and_clients(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(
@@ -106,7 +127,7 @@ class TestFedTrackerPro(unittest.TestCase):
         is_owner, leaker_id, confidence = framework.verify_ownership(TinyClassifier())
 
         self.assertTrue(is_owner)
-        self.assertEqual(leaker_id, 0)
+        self.assertIsNotNone(leaker_id)
         self.assertAlmostEqual(confidence, 1.0, places=6)
 
     def test_verify_ownership_rejects_on_crypto_failure(self) -> None:
@@ -165,6 +186,122 @@ class TestFedTrackerPro(unittest.TestCase):
         )
 
         self.assertIn("fine_tuning", results)
+
+
+class TestFedTrackerProPerClientTracing(unittest.TestCase):
+    """测试逐客户端溯源功能。"""
+
+    def test_fingerprint_registry_initialized(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=3)
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=3)
+        )
+
+        self.assertIsNotNone(framework.fingerprint_registry)
+        self.assertEqual(framework.fingerprint_registry.registered_ids, [0, 1, 2])
+
+    def test_per_client_fingerprint_identifies_correct_leaker(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=5)
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=5)
+        )
+
+        framework.train(num_rounds=1)
+
+        victim_model = framework.clients[3].model
+        is_owner, leaker_id, confidence = framework.verify_ownership(victim_model)
+
+        self.assertTrue(is_owner)
+        self.assertEqual(leaker_id, 3)
+        self.assertGreater(confidence, 0.5)
+
+    def test_per_client_fingerprint_rejects_unknown_model(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=3)
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=3)
+        )
+        framework.train(num_rounds=1)
+
+        unknown_model = TinyClassifier()
+        is_owner, leaker_id, _ = framework.verify_ownership(unknown_model)
+
+        self.assertFalse(is_owner)
+        self.assertIsNone(leaker_id)
+
+    def test_cross_client_low_false_positive(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=5)
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=5)
+        )
+        framework.train(num_rounds=1)
+
+        registry = framework.fingerprint_registry
+        model_0 = framework.clients[0].model
+        sims = registry.get_all_similarities(model_0)
+
+        score_0 = sims[0]
+        for cid in range(1, 5):
+            self.assertLess(
+                sims[cid],
+                score_0,
+                f"Client {cid} similarity >= client 0 self-similarity",
+            )
+
+    def test_per_client_fingerprint_after_fine_tuning(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=3)
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=3)
+        )
+        framework.train(num_rounds=1)
+
+        import copy
+
+        victim_model = copy.deepcopy(framework.clients[1].model)
+        attack = FineTuningAttack(device="cpu")
+        attacked_model = attack.attack(
+            victim_model, train_loader=make_loader(), epochs=1, lr=0.001
+        )
+
+        is_owner, leaker_id, _ = framework.verify_ownership(attacked_model)
+        self.assertEqual(leaker_id, 1)
+
+    def test_clients_are_protected_type(self) -> None:
+        from src.core.protected_client import ProtectedClient
+
+        config = self._build_config_with_fingerprint(num_clients=2)
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        for client in framework.clients:
+            self.assertIsInstance(client, ProtectedClient)
+
+    def _build_config_with_fingerprint(self, num_clients: int = 3) -> Config:
+        config = Config()
+        config.system.device = "cpu"
+        config.system.save_frequency = 1
+        config.federated.num_clients = num_clients
+        config.federated.client_fraction = 1.0
+        config.federated.local_epochs = 1
+        config.federated.local_lr = 0.01
+        config.federated.local_batch_size = 8
+        config.federated.optimizer = "sgd"
+        config.fingerprint.enabled = True
+        config.fingerprint.fingerprint_dim = 32
+        config.fingerprint.embedding_strength = 0.02
+        config.fingerprint.min_strength = 0.01
+        config.fingerprint.identification_threshold = 0.5
+        config.watermark.enabled = False
+        config.adaptive.enabled = False
+        config.crypto.enabled = False
+        config.unlearning.enabled = False
+        return config
 
 
 if __name__ == "__main__":

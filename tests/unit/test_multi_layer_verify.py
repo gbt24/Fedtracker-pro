@@ -20,13 +20,14 @@ class DummyWatermark:
         return self.score
 
 
-class DummyFingerprint:
-    def __init__(self, score: float) -> None:
+class DummyRegistry:
+    def __init__(self, matched_id: int, score: float) -> None:
+        self.matched_id = matched_id
         self.score = score
 
-    def verify(self, model) -> float:
-        _ = model
-        return self.score
+    def identify_client(self, model, candidate_ids=None):
+        _ = model, candidate_ids
+        return self.matched_id, self.score
 
 
 class TestMultiLayerVerifier(unittest.TestCase):
@@ -35,7 +36,7 @@ class TestMultiLayerVerifier(unittest.TestCase):
     def test_verify_ownership_returns_layered_results(self) -> None:
         verifier = MultiLayerVerifier(
             watermark=DummyWatermark(0.92),
-            fingerprint=DummyFingerprint(0.88),
+            fingerprint_registry=DummyRegistry(matched_id=1, score=0.88),
             level1_threshold=0.75,
             level3_threshold=0.9,
         )
@@ -49,7 +50,7 @@ class TestMultiLayerVerifier(unittest.TestCase):
     def test_verify_ownership_fails_when_crypto_fails(self) -> None:
         verifier = MultiLayerVerifier(
             watermark=DummyWatermark(0.95),
-            fingerprint=DummyFingerprint(0.95),
+            fingerprint_registry=DummyRegistry(matched_id=0, score=0.95),
         )
         model = torch.nn.Linear(4, 2)
         result = verifier.verify_ownership(model, crypto_result=False)
@@ -58,7 +59,7 @@ class TestMultiLayerVerifier(unittest.TestCase):
     def test_verify_ownership_accepts_crypto_dict(self) -> None:
         verifier = MultiLayerVerifier(
             watermark=DummyWatermark(0.95),
-            fingerprint=DummyFingerprint(0.95),
+            fingerprint_registry=DummyRegistry(matched_id=0, score=0.95),
         )
         model = torch.nn.Linear(4, 2)
         result = verifier.verify_ownership(model, crypto_result={"is_valid": True})

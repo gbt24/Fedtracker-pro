@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -45,10 +45,17 @@ class CryptographicVerification:
         self.signed_message: Dict[str, Any] | None = None
         self.embedded_model_hash: str | None = None
 
-    def _build_message(self, model: nn.Module) -> Dict[str, Any]:
+    def _build_message(
+        self, model: nn.Module, client_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         """根据模型状态构造待签名消息。"""
         state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
-        return {"model_hash": self.crypto_manager.hash_model_state(state)}
+        message: Dict[str, Any] = {
+            "model_hash": self.crypto_manager.hash_model_state(state)
+        }
+        if client_id is not None:
+            message["client_id"] = client_id
+        return message
 
     def _embed_signature_bits(
         self, model: nn.Module, signature: bytes, num_bits: int
@@ -99,9 +106,11 @@ class CryptographicVerification:
                 bits.append(float(int(round(val / self.strength)) & 1))
         return torch.tensor(bits, dtype=torch.float32)
 
-    def embed_to_model(self, model: nn.Module) -> nn.Module:
+    def embed_to_model(
+        self, model: nn.Module, client_id: Optional[int] = None
+    ) -> nn.Module:
         """生成签名并嵌入模型参数。"""
-        message = self._build_message(model)
+        message = self._build_message(model, client_id=client_id)
         signature = self.crypto_manager.sign(message)
         self.signed_message = message
         capacity = sum(
@@ -138,8 +147,11 @@ class CryptographicVerification:
             bool(torch.equal(extracted_bits, self.expected_bits))
             and current_message["model_hash"] == self.embedded_model_hash
         )
-        return {
+        result: Dict[str, Any] = {
             "is_valid": is_valid,
             "signature": signature,
             "message": current_message,
         }
+        if "client_id" in self.signed_message:
+            result["client_id"] = self.signed_message["client_id"]
+        return result
