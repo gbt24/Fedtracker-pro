@@ -43,6 +43,38 @@ class TestProjectScaffold(unittest.TestCase):
         self.assertIn("exp_scalability.py", content)
         self.assertIn("configs/default.yaml", content)
 
+    def test_requirements_dev_exists_and_has_test_tools(self) -> None:
+        path = os.path.join(self._repo_root(), "requirements-dev.txt")
+        self.assertTrue(os.path.exists(path))
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("pytest", content)
+        self.assertIn("mypy", content)
+
+    def test_scripts_exist(self) -> None:
+        for script_name in ["setup.sh", "train.sh", "evaluate.sh", "visualize.sh"]:
+            script_path = os.path.join(self._repo_root(), "scripts", script_name)
+            self.assertTrue(os.path.exists(script_path))
+
+    def test_docs_exist(self) -> None:
+        for doc_name in ["api.md", "tutorial.md"]:
+            doc_path = os.path.join(self._repo_root(), "docs", doc_name)
+            self.assertTrue(os.path.exists(doc_path))
+
+    def test_test_package_init_files_exist(self) -> None:
+        for rel_path in ["tests/__init__.py", "tests/fixtures/__init__.py"]:
+            abs_path = os.path.join(self._repo_root(), rel_path)
+            self.assertTrue(os.path.exists(abs_path))
+
+    def test_integration_tests_exist(self) -> None:
+        for rel_path in [
+            "tests/integration/test_end_to_end.py",
+            "tests/integration/test_attacks.py",
+            "tests/integration/test_multi_layer.py",
+        ]:
+            abs_path = os.path.join(self._repo_root(), rel_path)
+            self.assertTrue(os.path.exists(abs_path))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,7 @@
 from .resnet import BasicBlock, ResNet, ResNet18, ResNet34
 from .vgg import VGG, VGG11, VGG16
 from .mobilenet import MobileNetV2
+from .diffusion import DiffusionUNet
 
 __all__ = [
     "BasicBlock",
@@ -22,4 +23,5 @@ __all__ = [
     "VGG11",
     "VGG16",
     "MobileNetV2",
+    "DiffusionUNet",
 ]

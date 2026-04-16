@@ -1,0 +1,17 @@
+experiment:
+  name: "cifar10_resnet18"
+  tags: ["cifar10", "resnet18", "baseline"]
+
+data:
+  dataset: "cifar10"
+  iid: false
+  alpha: 0.5
+
+model:
+  name: "resnet18"
+  num_classes: 10
+
+federated:
+  num_clients: 50
+  global_rounds: 100
+  local_epochs: 2

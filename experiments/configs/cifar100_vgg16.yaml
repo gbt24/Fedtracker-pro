@@ -1,0 +1,17 @@
+experiment:
+  name: "cifar100_vgg16"
+  tags: ["cifar100", "vgg16", "ablation"]
+
+data:
+  dataset: "cifar100"
+  iid: false
+  alpha: 0.3
+
+model:
+  name: "vgg16"
+  num_classes: 100
+
+federated:
+  num_clients: 100
+  global_rounds: 150
+  local_epochs: 2

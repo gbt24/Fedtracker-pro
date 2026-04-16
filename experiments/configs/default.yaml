@@ -1,0 +1,9 @@
+experiment:
+  name: "default"
+  tags: ["quick"]
+
+config_path: "configs/default.yaml"
+
+runner:
+  baseline_attack_set: true
+  save_results: true
