@@ -15,6 +15,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from experiments.exp_ablation import get_ablation_groups
 from experiments.exp_baseline import build_default_attacks
+from experiments.read_results import (
+    format_results_table,
+    load_results,
+    resolve_target_dir,
+)
 from experiments.exp_robustness import build_robustness_attacks
 from experiments.exp_scalability import generate_client_scenarios
 from experiments.utils import (
@@ -180,6 +185,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             num_rounds=1,
             output_dir=None,
             show_progress=False,
+            enforce_crypto=True,
         )
         mock_print.assert_called()
 
@@ -213,6 +219,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             num_rounds=1,
             output_dir=None,
             show_progress=False,
+            enforce_crypto=True,
         )
         mock_print.assert_called()
 
@@ -243,6 +250,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             num_rounds=1,
             output_dir=None,
             show_progress=False,
+            enforce_crypto=True,
         )
         mock_print.assert_called()
 
@@ -308,6 +316,7 @@ class TestExperimentCliEntry(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_crypto"], True)
 
     def test_ablation_main_supports_explicit_progress_flag(self) -> None:
         from experiments import exp_ablation
@@ -329,6 +338,7 @@ class TestExperimentCliEntry(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_crypto"], True)
 
     def test_robustness_main_supports_explicit_progress_flag(self) -> None:
         from experiments import exp_robustness
@@ -347,6 +357,34 @@ class TestExperimentCliEntry(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_crypto"], True)
+
+    def test_baseline_main_supports_relaxed_crypto_flag(self) -> None:
+        from experiments import exp_baseline
+
+        with (
+            patch.object(
+                exp_baseline,
+                "run_baseline_experiment",
+                return_value={
+                    "results": {"fine_tuning": 1.0},
+                    "results_path": "a.json",
+                },
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_baseline.main(
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--relax-crypto-check",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_crypto"], False)
 
     def test_scalability_main_supports_explicit_progress_flag(self) -> None:
         from experiments import exp_scalability
@@ -397,6 +435,74 @@ class TestExperimentCliEntry(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0)
         self.assertNotIn("RuntimeWarning", completed.stderr)
+
+
+class TestReadResultsScript(unittest.TestCase):
+    def test_resolve_target_dir_prefers_latest_timestamp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.makedirs(os.path.join(tmp_dir, "20260417_100000"), exist_ok=True)
+            os.makedirs(os.path.join(tmp_dir, "20260417_110000"), exist_ok=True)
+
+            target = resolve_target_dir(root=tmp_dir, latest=True, specified_dir=None)
+            self.assertTrue(target.endswith("20260417_110000"))
+
+    def test_resolve_target_dir_uses_specified_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            os.makedirs(os.path.join(tmp_dir, "custom"), exist_ok=True)
+            target = resolve_target_dir(
+                root=tmp_dir,
+                latest=True,
+                specified_dir=os.path.join(tmp_dir, "custom"),
+            )
+            self.assertTrue(target.endswith("custom"))
+
+    def test_resolve_target_dir_raises_when_specified_dir_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaises(FileNotFoundError):
+                resolve_target_dir(
+                    root=tmp_dir,
+                    latest=True,
+                    specified_dir=os.path.join(tmp_dir, "missing"),
+                )
+
+    def test_resolve_target_dir_requires_latest_or_specified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaises(ValueError):
+                resolve_target_dir(root=tmp_dir, latest=False, specified_dir=None)
+
+    def test_load_results_and_format_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            exp_dir = os.path.join(tmp_dir, "20260417_120000")
+            os.makedirs(exp_dir, exist_ok=True)
+
+            baseline_path = os.path.join(exp_dir, "baseline_results.json")
+            with open(baseline_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "fine_tuning": 1.0,
+                        "fine_tuning_crypto_pass_rate": 0.0,
+                    },
+                    f,
+                )
+
+            ablation_path = os.path.join(exp_dir, "ablation_results.json")
+            with open(ablation_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "baseline": {"fine_tuning": 1.0},
+                        "full": {"fine_tuning": 0.0},
+                    },
+                    f,
+                )
+
+            payload = load_results(exp_dir)
+            text = format_results_table(payload)
+
+            self.assertIn("[baseline]", text)
+            self.assertIn("fine_tuning: 1.0", text)
+            self.assertIn("fine_tuning_crypto_pass_rate: 0.0", text)
+            self.assertIn("[ablation]", text)
+            self.assertIn("* full", text)
 
 
 if __name__ == "__main__":

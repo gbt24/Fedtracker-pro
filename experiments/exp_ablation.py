@@ -96,6 +96,7 @@ def run_ablation_experiment(
     num_rounds: Optional[int] = None,
     output_dir: Optional[str] = None,
     show_progress: bool = False,
+    enforce_crypto: bool = True,
 ) -> Dict[str, Any]:
     """运行消融实验并返回结果。"""
     base_config = Config(config_path)
@@ -134,6 +135,7 @@ def run_ablation_experiment(
             test_loader,
             show_progress=show_progress,
             progress_desc=f"ablation-attacks:{group_name}",
+            enforce_crypto=enforce_crypto,
         )
 
     base_dir = output_dir if output_dir is not None else "./experiments/results"
@@ -181,7 +183,21 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_false",
         help="关闭进度条",
     )
+    crypto_group = parser.add_mutually_exclusive_group()
+    crypto_group.add_argument(
+        "--enforce-crypto",
+        dest="enforce_crypto",
+        action="store_true",
+        help="攻击评估时强制密码学校验（默认）",
+    )
+    crypto_group.add_argument(
+        "--relax-crypto-check",
+        dest="enforce_crypto",
+        action="store_false",
+        help="攻击评估时不把密码学校验作为硬性拒绝条件",
+    )
     parser.set_defaults(progress=None)
+    parser.set_defaults(enforce_crypto=True)
     return parser.parse_args(argv)
 
 
@@ -193,6 +209,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         num_rounds=args.num_rounds,
         output_dir=args.output_dir,
         show_progress=resolve_progress_flag(args.progress),
+        enforce_crypto=args.enforce_crypto,
     )
     print(f"[ablation] results saved to: {payload['results_path']}")
     print(payload["results"])

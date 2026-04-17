@@ -212,6 +212,67 @@ class TestFedTrackerPro(unittest.TestCase):
         self.assertFalse(is_owner)
         self.assertIsNone(leaker_id)
 
+    def test_verify_ownership_can_skip_crypto_enforcement(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _CryptoFailStub:
+            def verify_model(self, model: nn.Module) -> dict[str, bool]:
+                _ = model
+                return {"is_valid": False}
+
+        framework.crypto_verifier = _CryptoFailStub()
+        is_owner, leaker_id, confidence = framework.verify_ownership(
+            TinyClassifier(),
+            enforce_crypto=False,
+        )
+
+        self.assertTrue(is_owner)
+        self.assertIsNotNone(leaker_id)
+        self.assertAlmostEqual(confidence, 1.0, places=6)
+
+    def test_verify_ownership_rejects_on_crypto_exception_when_enforced(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _CryptoErrorStub:
+            def verify_model(self, model: nn.Module) -> dict[str, bool]:
+                _ = model
+                raise ValueError("crypto failure")
+
+        framework.crypto_verifier = _CryptoErrorStub()
+        is_owner, leaker_id, _ = framework.verify_ownership(TinyClassifier())
+
+        self.assertFalse(is_owner)
+        self.assertIsNone(leaker_id)
+
+    def test_verify_ownership_allows_on_crypto_exception_when_not_enforced(
+        self,
+    ) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _CryptoErrorStub:
+            def verify_model(self, model: nn.Module) -> dict[str, bool]:
+                _ = model
+                raise ValueError("crypto failure")
+
+        framework.crypto_verifier = _CryptoErrorStub()
+        is_owner, leaker_id, confidence = framework.verify_ownership(
+            TinyClassifier(),
+            enforce_crypto=False,
+        )
+
+        self.assertTrue(is_owner)
+        self.assertIsNotNone(leaker_id)
+        self.assertAlmostEqual(confidence, 1.0, places=6)
+
     def test_verify_ownership_rejects_on_watermark_failure(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(
@@ -234,7 +295,11 @@ class TestFedTrackerPro(unittest.TestCase):
             TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
         )
 
-        results = framework.evaluate_attack_robustness([NoOpAttack()], make_loader())
+        results = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            enforce_crypto=False,
+        )
 
         self.assertIn("noop", results)
         self.assertEqual(results["noop"], 1.0)
@@ -266,6 +331,48 @@ class TestFedTrackerPro(unittest.TestCase):
         )
 
         self.assertIn("fine_tuning", results)
+
+    def test_evaluate_attack_robustness_records_crypto_pass_rate(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _CryptoFailStub:
+            def verify_model(self, model: nn.Module) -> dict[str, bool]:
+                _ = model
+                return {"is_valid": False}
+
+        framework.crypto_verifier = _CryptoFailStub()
+        results = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            enforce_crypto=False,
+        )
+
+        self.assertEqual(results["noop"], 1.0)
+        self.assertEqual(results["noop_crypto_pass_rate"], 0.0)
+
+    def test_evaluate_attack_robustness_enforces_crypto_when_enabled(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _CryptoFailStub:
+            def verify_model(self, model: nn.Module) -> dict[str, bool]:
+                _ = model
+                return {"is_valid": False}
+
+        framework.crypto_verifier = _CryptoFailStub()
+        results = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            enforce_crypto=True,
+        )
+
+        self.assertEqual(results["noop"], 0.0)
+        self.assertEqual(results["noop_crypto_pass_rate"], 0.0)
 
     def test_initialize_with_adaptive_allocator_enabled(self) -> None:
         config = self._build_config()

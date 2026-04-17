@@ -246,6 +246,8 @@ class FedTrackerPro:
         self,
         suspicious_model: nn.Module,
         candidate_clients: Optional[List[int]] = None,
+        enforce_crypto: bool = True,
+        crypto_result: Optional[Dict[str, object]] = None,
     ) -> Tuple[bool, Optional[int], float]:
         """执行三层验证并返回所有权判断。
 
@@ -268,12 +270,25 @@ class FedTrackerPro:
                 return False, None, 0.0
 
         if self.crypto_verifier is not None:
-            crypto_result = self.crypto_verifier.verify_model(suspicious_model)
-            if not bool(crypto_result.get("is_valid", False)):
+            local_crypto_result: Dict[str, object] = (
+                {"is_valid": False} if crypto_result is None else crypto_result
+            )
+            if crypto_result is None:
+                try:
+                    local_crypto_result = self.crypto_verifier.verify_model(
+                        suspicious_model
+                    )
+                except Exception:
+                    if enforce_crypto:
+                        return False, None, similarity
+
+            if enforce_crypto and not bool(local_crypto_result.get("is_valid", False)):
                 return False, None, similarity
-            signed_client = crypto_result.get("client_id")
+
+            signed_client = local_crypto_result.get("client_id")
             if (
-                self.config.verification.cross_verify_client_id
+                enforce_crypto
+                and self.config.verification.cross_verify_client_id
                 and signed_client is not None
                 and matched_id is not None
                 and matched_id != signed_client
@@ -304,6 +319,7 @@ class FedTrackerPro:
         test_loader: torch.utils.data.DataLoader,
         show_progress: bool = False,
         progress_desc: Optional[str] = None,
+        enforce_crypto: bool = True,
     ) -> Dict[str, float]:
         """评估攻击下的所有权存活率。"""
         _ = test_loader
@@ -330,6 +346,24 @@ class FedTrackerPro:
                 kwargs["query_loader"] = test_loader
 
             attacked_model = attack.attack(victim_model, **kwargs)
-            is_owner, _, _ = self.verify_ownership(attacked_model)
-            results[attack.get_attack_name()] = 1.0 if is_owner else 0.0
+            crypto_result: Optional[Dict[str, object]] = None
+            if self.crypto_verifier is not None:
+                try:
+                    crypto_result = self.crypto_verifier.verify_model(attacked_model)
+                except Exception:
+                    crypto_result = {"is_valid": False}
+
+            is_owner, _, _ = self.verify_ownership(
+                attacked_model,
+                enforce_crypto=enforce_crypto,
+                crypto_result=crypto_result,
+            )
+            attack_name = attack.get_attack_name()
+            results[attack_name] = 1.0 if is_owner else 0.0
+
+            if self.crypto_verifier is not None:
+                crypto_valid = bool((crypto_result or {}).get("is_valid", False))
+                results[f"{attack_name}_crypto_pass_rate"] = (
+                    1.0 if crypto_valid else 0.0
+                )
         return results
