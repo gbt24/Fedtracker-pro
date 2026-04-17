@@ -85,7 +85,7 @@ class FedTrackerPro:
                 alpha=self.config.data.alpha,
                 num_shards=self.config.data.num_shards,
                 num_workers=self.config.system.num_workers,
-                pin_memory=self.device.startswith("cuda"),
+                pin_memory=self.config.system.pin_memory,
                 persistent_workers=self.config.system.persistent_workers,
                 prefetch_factor=self.config.system.prefetch_factor,
             )

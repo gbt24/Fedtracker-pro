@@ -75,6 +75,7 @@ verification:
 system:
   device: "cuda"
   num_workers: 4
+  pin_memory: false
   persistent_workers: false
   prefetch_factor: 2
   seed: 42

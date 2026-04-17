@@ -150,6 +150,19 @@ class TestFedTrackerPro(unittest.TestCase):
             prefetch_factor=3,
         )
 
+    def test_initialize_uses_config_pin_memory(self) -> None:
+        config = self._build_config()
+        config.system.pin_memory = True
+
+        with patch(
+            "src.core.fed_tracker_pro.FederatedDataManager",
+            return_value=DummyDataManager(num_clients=2),
+        ) as mock_manager:
+            framework = FedTrackerPro(config)
+            framework.initialize(TinyClassifier())
+
+        self.assertEqual(mock_manager.call_args.kwargs["pin_memory"], True)
+
     def test_train_one_round_updates_server_round(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(

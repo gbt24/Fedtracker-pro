@@ -122,6 +122,7 @@ class SystemConfig:
 
     device: str = "cuda"
     num_workers: int = 4
+    pin_memory: bool = False
     persistent_workers: bool = False
     prefetch_factor: int = 2
     seed: int = 42
