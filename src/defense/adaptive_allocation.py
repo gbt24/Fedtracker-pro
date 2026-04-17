@@ -11,19 +11,29 @@
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Optional
 
 
 class AdaptiveAllocator:
     """根据客户端表现动态分配预算。"""
 
-    def __init__(self, beta: float = 0.1, min_allocation: float = 0.05) -> None:
+    def __init__(
+        self,
+        beta: float = 0.1,
+        min_allocation: float = 0.05,
+        evaluation_period: int = 10,
+        device: Optional[str] = None,
+    ) -> None:
         if beta <= 0:
             raise ValueError("beta must be greater than 0")
         if min_allocation < 0:
             raise ValueError("min_allocation must be non-negative")
+        if evaluation_period <= 0:
+            raise ValueError("evaluation_period must be greater than 0")
         self.beta = beta
         self.min_allocation = min_allocation
+        self.evaluation_period = evaluation_period
+        self.device = device
 
     def evaluate_tolerance(
         self,

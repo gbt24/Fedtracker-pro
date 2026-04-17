@@ -187,6 +187,24 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertIn("fine_tuning", results)
 
+    def test_initialize_with_adaptive_allocator_enabled(self) -> None:
+        config = self._build_config()
+        config.adaptive.enabled = True
+        config.adaptive.beta = 0.2
+        config.adaptive.min_allocation = 0.03
+        config.adaptive.evaluation_period = 7
+
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        self.assertIsNotNone(framework.adaptive_allocator)
+        self.assertAlmostEqual(framework.adaptive_allocator.beta, 0.2)
+        self.assertAlmostEqual(framework.adaptive_allocator.min_allocation, 0.03)
+        self.assertEqual(framework.adaptive_allocator.evaluation_period, 7)
+        self.assertEqual(framework.adaptive_allocator.device, framework.device)
+
 
 class TestFedTrackerProPerClientTracing(unittest.TestCase):
     """测试逐客户端溯源功能。"""

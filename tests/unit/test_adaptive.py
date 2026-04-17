@@ -29,6 +29,12 @@ class TestAdaptiveAllocator(unittest.TestCase):
         self.assertGreaterEqual(allocations["c1"], 0.1)
         self.assertGreaterEqual(allocations["c2"], 0.1)
 
+    def test_invalid_evaluation_period_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            AdaptiveAllocator(evaluation_period=0)
+        with self.assertRaises(ValueError):
+            AdaptiveAllocator(evaluation_period=-1)
+
 
 if __name__ == "__main__":
     unittest.main()
