@@ -420,6 +420,27 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertFalse(is_owner)
 
+    def test_verify_ownership_can_skip_watermark_enforcement(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _WatermarkFailStub:
+            def verify(self, model: nn.Module) -> float:
+                _ = model
+                return 0.0
+
+        framework.watermarker = _WatermarkFailStub()
+        is_owner, leaker_id, confidence = framework.verify_ownership(
+            TinyClassifier(),
+            enforce_watermark=False,
+        )
+
+        self.assertTrue(is_owner)
+        self.assertIsNotNone(leaker_id)
+        self.assertGreaterEqual(confidence, 0.0)
+
     def test_verify_ownership_generates_watermark_trigger_set_if_missing(self) -> None:
         config = self._build_config()
         config.watermark.enabled = True
@@ -551,6 +572,51 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertEqual(results["noop"], 0.0)
         self.assertEqual(results["noop_crypto_pass_rate"], 0.0)
+
+    def test_evaluate_attack_robustness_relaxes_watermark_by_default(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _WatermarkFailStub:
+            trigger_set = (torch.randn(4, 3, 8, 8), torch.zeros(4, dtype=torch.long))
+
+            def verify(self, model: nn.Module) -> float:
+                _ = model
+                return 0.0
+
+        framework.watermarker = _WatermarkFailStub()
+        results = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+        )
+
+        self.assertEqual(results["noop"], 1.0)
+        self.assertEqual(results["noop_watermark_pass_rate"], 0.0)
+
+    def test_evaluate_attack_robustness_can_enforce_watermark(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _WatermarkFailStub:
+            trigger_set = (torch.randn(4, 3, 8, 8), torch.zeros(4, dtype=torch.long))
+
+            def verify(self, model: nn.Module) -> float:
+                _ = model
+                return 0.0
+
+        framework.watermarker = _WatermarkFailStub()
+        results = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            enforce_watermark=True,
+        )
+
+        self.assertEqual(results["noop"], 0.0)
+        self.assertEqual(results["noop_watermark_pass_rate"], 0.0)
 
     def test_initialize_with_adaptive_allocator_enabled(self) -> None:
         config = self._build_config()

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import math
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -297,6 +298,8 @@ class FedTrackerPro:
         candidate_clients: Optional[List[int]] = None,
         enforce_crypto: bool = True,
         crypto_result: Optional[Dict[str, object]] = None,
+        watermark_accuracy: Optional[float] = None,
+        enforce_watermark: bool = True,
     ) -> Tuple[bool, Optional[int], float]:
         """执行三层验证并返回所有权判断。
 
@@ -345,17 +348,30 @@ class FedTrackerPro:
                 return False, None, similarity
 
         if self.watermarker is not None:
-            if not self._ensure_watermark_trigger_set():
-                return False, matched_id, float((similarity + 1.0) / 2)
+            wm_accuracy = watermark_accuracy
+            if wm_accuracy is None:
+                if not self._ensure_watermark_trigger_set():
+                    if enforce_watermark:
+                        return False, matched_id, float((similarity + 1.0) / 2)
+                    return True, matched_id, float((similarity + 1.0) / 2)
 
-            try:
-                wm_accuracy = self.watermarker.verify(suspicious_model)
-            except Exception as exc:
-                self.logger.warning(f"Watermark verification failed: {exc}")
-                return False, matched_id, float((similarity + 1.0) / 2)
+                try:
+                    wm_accuracy = self.watermarker.verify(suspicious_model)
+                except Exception as exc:
+                    self.logger.warning(f"Watermark verification failed: {exc}")
+                    if enforce_watermark:
+                        return False, matched_id, float((similarity + 1.0) / 2)
+                    return True, matched_id, float((similarity + 1.0) / 2)
+
+            if not math.isfinite(float(wm_accuracy)):
+                if enforce_watermark:
+                    return False, matched_id, float((similarity + 1.0) / 2)
+                return True, matched_id, float((similarity + 1.0) / 2)
 
             if wm_accuracy < self.config.verification.level3_threshold:
-                return False, matched_id, (similarity + 1.0) / 2
+                if enforce_watermark:
+                    return False, matched_id, float((similarity + 1.0) / 2)
+                return True, matched_id, float((similarity + 1.0) / 2)
             confidence = (similarity + 1.0 + wm_accuracy) / 3
             return True, matched_id, float(confidence)
 
@@ -377,6 +393,7 @@ class FedTrackerPro:
         show_progress: bool = False,
         progress_desc: Optional[str] = None,
         enforce_crypto: bool = True,
+        enforce_watermark: bool = False,
     ) -> Dict[str, float]:
         """评估攻击下的所有权存活率。"""
         _ = test_loader
@@ -404,16 +421,25 @@ class FedTrackerPro:
 
             attacked_model = attack.attack(victim_model, **kwargs)
             crypto_result: Optional[Dict[str, object]] = None
+            watermark_accuracy: Optional[float] = None
             if self.crypto_verifier is not None:
                 try:
                     crypto_result = self.crypto_verifier.verify_model(attacked_model)
                 except Exception:
                     crypto_result = {"is_valid": False}
 
+            if self.watermarker is not None and self._ensure_watermark_trigger_set():
+                try:
+                    watermark_accuracy = self.watermarker.verify(attacked_model)
+                except Exception:
+                    watermark_accuracy = None
+
             is_owner, _, _ = self.verify_ownership(
                 attacked_model,
                 enforce_crypto=enforce_crypto,
+                enforce_watermark=enforce_watermark,
                 crypto_result=crypto_result,
+                watermark_accuracy=watermark_accuracy,
             )
             attack_name = attack.get_attack_name()
             results[attack_name] = 1.0 if is_owner else 0.0
@@ -422,5 +448,14 @@ class FedTrackerPro:
                 crypto_valid = bool((crypto_result or {}).get("is_valid", False))
                 results[f"{attack_name}_crypto_pass_rate"] = (
                     1.0 if crypto_valid else 0.0
+                )
+
+            if self.watermarker is not None:
+                watermark_valid = (
+                    watermark_accuracy is not None
+                    and watermark_accuracy >= self.config.verification.level3_threshold
+                )
+                results[f"{attack_name}_watermark_pass_rate"] = (
+                    1.0 if watermark_valid else 0.0
                 )
         return results

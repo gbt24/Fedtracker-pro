@@ -97,6 +97,7 @@ def run_ablation_experiment(
     output_dir: Optional[str] = None,
     show_progress: bool = False,
     enforce_crypto: bool = True,
+    enforce_watermark: bool = False,
 ) -> Dict[str, Any]:
     """运行消融实验并返回结果。"""
     base_config = Config(config_path)
@@ -136,6 +137,7 @@ def run_ablation_experiment(
             show_progress=show_progress,
             progress_desc=f"ablation-attacks:{group_name}",
             enforce_crypto=enforce_crypto,
+            enforce_watermark=enforce_watermark,
         )
 
     base_dir = output_dir if output_dir is not None else "./experiments/results"
@@ -196,8 +198,22 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_false",
         help="攻击评估时不把密码学校验作为硬性拒绝条件",
     )
+    watermark_group = parser.add_mutually_exclusive_group()
+    watermark_group.add_argument(
+        "--enforce-watermark",
+        dest="enforce_watermark",
+        action="store_true",
+        help="攻击评估时强制水印校验",
+    )
+    watermark_group.add_argument(
+        "--relax-watermark-check",
+        dest="enforce_watermark",
+        action="store_false",
+        help="攻击评估时不把水印校验作为硬性拒绝条件（默认）",
+    )
     parser.set_defaults(progress=None)
     parser.set_defaults(enforce_crypto=True)
+    parser.set_defaults(enforce_watermark=False)
     return parser.parse_args(argv)
 
 
@@ -210,6 +226,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         output_dir=args.output_dir,
         show_progress=resolve_progress_flag(args.progress),
         enforce_crypto=args.enforce_crypto,
+        enforce_watermark=args.enforce_watermark,
     )
     print(f"[ablation] results saved to: {payload['results_path']}")
     print(payload["results"])

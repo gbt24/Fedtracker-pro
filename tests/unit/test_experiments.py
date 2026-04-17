@@ -186,6 +186,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             output_dir=None,
             show_progress=False,
             enforce_crypto=True,
+            enforce_watermark=False,
         )
         mock_print.assert_called()
 
@@ -220,6 +221,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             output_dir=None,
             show_progress=False,
             enforce_crypto=True,
+            enforce_watermark=False,
         )
         mock_print.assert_called()
 
@@ -251,6 +253,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             output_dir=None,
             show_progress=False,
             enforce_crypto=True,
+            enforce_watermark=False,
         )
         mock_print.assert_called()
 
@@ -317,6 +320,7 @@ class TestExperimentCliEntry(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
         self.assertEqual(mock_run.call_args.kwargs["enforce_crypto"], True)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_watermark"], False)
 
     def test_ablation_main_supports_explicit_progress_flag(self) -> None:
         from experiments import exp_ablation
@@ -339,6 +343,7 @@ class TestExperimentCliEntry(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
         self.assertEqual(mock_run.call_args.kwargs["enforce_crypto"], True)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_watermark"], False)
 
     def test_robustness_main_supports_explicit_progress_flag(self) -> None:
         from experiments import exp_robustness
@@ -358,6 +363,7 @@ class TestExperimentCliEntry(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
         self.assertEqual(mock_run.call_args.kwargs["enforce_crypto"], True)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_watermark"], False)
 
     def test_baseline_main_supports_relaxed_crypto_flag(self) -> None:
         from experiments import exp_baseline
@@ -385,6 +391,111 @@ class TestExperimentCliEntry(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(mock_run.call_args.kwargs["enforce_crypto"], False)
+
+    def test_baseline_main_supports_enforced_watermark_flag(self) -> None:
+        from experiments import exp_baseline
+
+        with (
+            patch.object(
+                exp_baseline,
+                "run_baseline_experiment",
+                return_value={
+                    "results": {"fine_tuning": 1.0},
+                    "results_path": "a.json",
+                },
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_baseline.main(
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--enforce-watermark",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_watermark"], True)
+
+    def test_baseline_main_supports_relaxed_watermark_flag(self) -> None:
+        from experiments import exp_baseline
+
+        with (
+            patch.object(
+                exp_baseline,
+                "run_baseline_experiment",
+                return_value={
+                    "results": {"fine_tuning": 1.0},
+                    "results_path": "a.json",
+                },
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_baseline.main(
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--relax-watermark-check",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_watermark"], False)
+
+    def test_ablation_main_supports_enforced_watermark_flag(self) -> None:
+        from experiments import exp_ablation
+
+        with (
+            patch.object(
+                exp_ablation,
+                "run_ablation_experiment",
+                return_value={
+                    "results": {"full": {"fine_tuning": 1.0}},
+                    "results_path": "b.json",
+                },
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_ablation.main(
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--enforce-watermark",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_watermark"], True)
+
+    def test_robustness_main_supports_enforced_watermark_flag(self) -> None:
+        from experiments import exp_robustness
+
+        with (
+            patch.object(
+                exp_robustness,
+                "run_robustness_experiment",
+                return_value={"results": {"ambiguity": 1.0}, "results_path": "c.json"},
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_robustness.main(
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--enforce-watermark",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["enforce_watermark"], True)
 
     def test_scalability_main_supports_explicit_progress_flag(self) -> None:
         from experiments import exp_scalability
