@@ -267,6 +267,53 @@ class TestFedTrackerPro(unittest.TestCase):
             current_ids.issubset(set(framework.watermarker.returned_model_ids))
         )
 
+    def test_train_reapplies_client_protection_after_watermark_embedding(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=2)
+        config.watermark.enabled = True
+        data_manager = DummyDataManager(num_clients=2)
+
+        framework = FedTrackerPro(config)
+        framework.initialize(TinyClassifier(), data_manager=data_manager)
+
+        class _WatermarkerNoOpStub:
+            def embed(
+                self,
+                model: nn.Module,
+                train_loader: torch.utils.data.DataLoader,
+                epochs: int = 5,
+                lr: float = 0.001,
+                main_task_weight: float = 1.0,
+                watermark_weight: float = 1.0,
+            ) -> nn.Module:
+                _ = (
+                    train_loader,
+                    epochs,
+                    lr,
+                    main_task_weight,
+                    watermark_weight,
+                )
+                with torch.no_grad():
+                    for p in model.parameters():
+                        p.add_(0.0001)
+                        break
+                return model
+
+        framework.watermarker = _WatermarkerNoOpStub()
+
+        patches = [
+            patch.object(client, "embed_protection", wraps=client.embed_protection)
+            for client in framework.clients
+        ]
+        mocked = [p.start() for p in patches]
+        try:
+            framework.train(num_rounds=1)
+        finally:
+            for p in patches:
+                p.stop()
+
+        for embed_mock in mocked:
+            self.assertEqual(embed_mock.call_count, 2)
+
     def test_verify_ownership_without_defense_modules(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(

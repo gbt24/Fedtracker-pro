@@ -243,7 +243,16 @@ class FedTrackerPro:
                             lr=self.config.watermark.watermark_lr,
                         )
                         if wm_model is not None:
-                            self.clients[client_id].model = wm_model
+                            self.clients[client_id].model = wm_model.to(
+                                self.clients[client_id].device
+                            )
+
+                        embed_fn = getattr(
+                            self.clients[client_id], "embed_protection", None
+                        )
+                        if callable(embed_fn):
+                            embed_fn()
+
                         local_state = self.clients[client_id].get_model_state(
                             to_cpu=True
                         )
