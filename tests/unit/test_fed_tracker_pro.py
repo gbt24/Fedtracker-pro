@@ -343,6 +343,18 @@ class TestFedTrackerPro(unittest.TestCase):
         self.assertFalse(is_owner)
         self.assertIsNone(leaker_id)
 
+    def test_verify_ownership_rejects_invalid_level1_override(self) -> None:
+        framework = FedTrackerPro(self._build_config_with_fingerprint(num_clients=2))
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        with self.assertRaises(ValueError):
+            framework.verify_ownership(
+                TinyClassifier(),
+                level1_threshold_override=float("nan"),
+            )
+
     def test_verify_ownership_can_skip_crypto_enforcement(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(
@@ -502,6 +514,56 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertIn("noop", results)
         self.assertEqual(results["noop"], 1.0)
+
+    def test_evaluate_attack_robustness_records_fingerprint_similarity(self) -> None:
+        framework = FedTrackerPro(self._build_config_with_fingerprint(num_clients=2))
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+        framework.train(num_rounds=1)
+
+        results = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            enforce_crypto=False,
+            enforce_watermark=False,
+        )
+
+        self.assertIn("noop_fingerprint_similarity", results)
+
+    def test_evaluate_attack_robustness_relaxes_level1_when_checks_relaxed(
+        self,
+    ) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _RegistryStub:
+            identification_threshold = 0.5
+
+            def identify_client(self, model: nn.Module, candidate_ids=None):
+                _ = model, candidate_ids
+                return 0, 0.6
+
+        framework.fingerprint_registry = _RegistryStub()
+        framework.config.verification.level1_threshold = 0.75
+
+        strict = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            enforce_crypto=True,
+            enforce_watermark=True,
+        )
+        relaxed = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            enforce_crypto=False,
+            enforce_watermark=False,
+        )
+
+        self.assertEqual(strict["noop"], 0.0)
+        self.assertEqual(relaxed["noop"], 1.0)
 
     def test_evaluate_attack_robustness_supports_progress_mode(self) -> None:
         framework = FedTrackerPro(self._build_config())

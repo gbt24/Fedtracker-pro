@@ -300,6 +300,7 @@ class FedTrackerPro:
         crypto_result: Optional[Dict[str, object]] = None,
         watermark_accuracy: Optional[float] = None,
         enforce_watermark: bool = True,
+        level1_threshold_override: Optional[float] = None,
     ) -> Tuple[bool, Optional[int], float]:
         """执行三层验证并返回所有权判断。
 
@@ -315,10 +316,24 @@ class FedTrackerPro:
         similarity = 1.0
 
         if self.fingerprint_registry is not None:
+            if level1_threshold_override is not None and (
+                not math.isfinite(level1_threshold_override)
+                or level1_threshold_override < -1.0
+                or level1_threshold_override > 1.0
+            ):
+                raise ValueError(
+                    "level1_threshold_override must be finite and in [-1, 1]"
+                )
+
             matched_id, similarity = self.fingerprint_registry.identify_client(
                 suspicious_model, candidate_clients
             )
-            if similarity < self.config.verification.level1_threshold:
+            level1_threshold = (
+                self.config.verification.level1_threshold
+                if level1_threshold_override is None
+                else level1_threshold_override
+            )
+            if similarity < level1_threshold:
                 return False, None, 0.0
 
         if self.crypto_verifier is not None:
@@ -394,6 +409,7 @@ class FedTrackerPro:
         progress_desc: Optional[str] = None,
         enforce_crypto: bool = True,
         enforce_watermark: bool = False,
+        level1_threshold_override: Optional[float] = None,
     ) -> Dict[str, float]:
         """评估攻击下的所有权存活率。"""
         _ = test_loader
@@ -434,12 +450,25 @@ class FedTrackerPro:
                 except Exception:
                     watermark_accuracy = None
 
+            local_level1_threshold = level1_threshold_override
+            if (
+                local_level1_threshold is None
+                and self.fingerprint_registry is not None
+                and not enforce_crypto
+                and not enforce_watermark
+            ):
+                local_level1_threshold = min(
+                    self.config.verification.level1_threshold,
+                    self.fingerprint_registry.identification_threshold,
+                )
+
             is_owner, _, _ = self.verify_ownership(
                 attacked_model,
                 enforce_crypto=enforce_crypto,
                 enforce_watermark=enforce_watermark,
                 crypto_result=crypto_result,
                 watermark_accuracy=watermark_accuracy,
+                level1_threshold_override=local_level1_threshold,
             )
             attack_name = attack.get_attack_name()
             results[attack_name] = 1.0 if is_owner else 0.0
@@ -458,4 +487,11 @@ class FedTrackerPro:
                 results[f"{attack_name}_watermark_pass_rate"] = (
                     1.0 if watermark_valid else 0.0
                 )
+
+            if self.fingerprint_registry is not None:
+                _, similarity = self.fingerprint_registry.identify_client(
+                    attacked_model,
+                    list(range(len(self.clients))),
+                )
+                results[f"{attack_name}_fingerprint_similarity"] = float(similarity)
         return results
