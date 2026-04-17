@@ -289,6 +289,53 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertFalse(is_owner)
 
+    def test_verify_ownership_generates_watermark_trigger_set_if_missing(self) -> None:
+        config = self._build_config()
+        config.watermark.enabled = True
+        config.verification.level3_threshold = 0.0
+
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(),
+            data_manager=DummyDataManager(num_clients=2),
+        )
+
+        self.assertIsNotNone(framework.watermarker)
+        self.assertIsNone(framework.watermarker.trigger_set)
+
+        is_owner, leaker_id, confidence = framework.verify_ownership(TinyClassifier())
+
+        self.assertIsNotNone(framework.watermarker.trigger_set)
+        self.assertTrue(is_owner)
+        self.assertIsNotNone(leaker_id)
+        self.assertGreaterEqual(confidence, 0.0)
+
+    def test_verify_ownership_handles_watermark_trigger_generation_failure(
+        self,
+    ) -> None:
+        config = self._build_config()
+        config.watermark.enabled = True
+
+        empty_x = torch.empty((0, 3, 8, 8))
+        empty_y = torch.empty((0,), dtype=torch.long)
+        empty_ds = torch.utils.data.TensorDataset(empty_x, empty_y)
+        empty_loader = torch.utils.data.DataLoader(empty_ds, batch_size=8)
+
+        data_manager = DummyDataManager(num_clients=2)
+        data_manager._test_loader = empty_loader
+
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(),
+            data_manager=data_manager,
+        )
+
+        is_owner, leaker_id, confidence = framework.verify_ownership(TinyClassifier())
+
+        self.assertFalse(is_owner)
+        self.assertIsNotNone(leaker_id)
+        self.assertGreaterEqual(confidence, 0.0)
+
     def test_evaluate_attack_robustness_returns_named_results(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(

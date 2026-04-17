@@ -242,6 +242,27 @@ class FedTrackerPro:
                 self.server.evaluate(self.data_manager.get_test_loader())
                 self._save_checkpoint(round_idx + 1)
 
+    def _ensure_watermark_trigger_set(self) -> bool:
+        """确保水印触发集可用于验证阶段。"""
+        if self.watermarker is None:
+            return False
+        if not hasattr(self.watermarker, "trigger_set"):
+            return False
+        if getattr(self.watermarker, "trigger_set") is not None:
+            return True
+        if not hasattr(self.watermarker, "generate_trigger_set"):
+            return False
+
+        try:
+            loader = None
+            if self.data_manager is not None:
+                loader = self.data_manager.get_test_loader()
+            self.watermarker.generate_trigger_set(loader)
+        except Exception as exc:
+            self.logger.warning(f"Failed to generate watermark trigger set: {exc}")
+            return False
+        return True
+
     def verify_ownership(
         self,
         suspicious_model: nn.Module,
@@ -296,7 +317,15 @@ class FedTrackerPro:
                 return False, None, similarity
 
         if self.watermarker is not None:
-            wm_accuracy = self.watermarker.verify(suspicious_model)
+            if not self._ensure_watermark_trigger_set():
+                return False, matched_id, float((similarity + 1.0) / 2)
+
+            try:
+                wm_accuracy = self.watermarker.verify(suspicious_model)
+            except Exception as exc:
+                self.logger.warning(f"Watermark verification failed: {exc}")
+                return False, matched_id, float((similarity + 1.0) / 2)
+
             if wm_accuracy < self.config.verification.level3_threshold:
                 return False, matched_id, (similarity + 1.0) / 2
             confidence = (similarity + 1.0 + wm_accuracy) / 3
