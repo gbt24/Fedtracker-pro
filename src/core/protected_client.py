@@ -66,8 +66,9 @@ class ProtectedClient(StandardClient):
     def local_train(
         self,
         global_state: Optional[Dict[str, torch.Tensor]] = None,
+        return_cpu_state: bool = True,
     ) -> Dict[str, torch.Tensor]:
         """重写: 训练 → 嵌入保护 → 返回状态。"""
-        super().local_train(global_state)
+        super().local_train(global_state, return_cpu_state=False)
         self.embed_protection()
-        return self.get_model_state()
+        return self.get_model_state(to_cpu=return_cpu_state)

@@ -84,6 +84,8 @@ class FedTrackerPro:
                 iid=self.config.data.iid,
                 alpha=self.config.data.alpha,
                 num_shards=self.config.data.num_shards,
+                num_workers=self.config.system.num_workers,
+                pin_memory=self.device.startswith("cuda"),
             )
         else:
             self.data_manager = data_manager
@@ -223,10 +225,11 @@ class FedTrackerPro:
 
         for round_idx in rounds:
             local_states: list[Dict[str, torch.Tensor]] = []
-            global_state = self.server.get_global_state()
+            global_state = self.server.get_global_state(to_cpu=False)
             for client_id in self._select_clients():
                 local_state = self.clients[client_id].local_train(
-                    global_state=global_state
+                    global_state=global_state,
+                    return_cpu_state=True,
                 )
                 local_states.append(local_state)
 

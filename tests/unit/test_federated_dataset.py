@@ -127,6 +127,32 @@ class TestFederatedDataManager(unittest.TestCase):
         with self.assertRaises(ValueError):
             manager.get_client_loader(client_id=3)
 
+    def test_client_loader_respects_worker_and_pin_memory(self) -> None:
+        manager = DummyDataManager(
+            dataset_name="dummy",
+            num_clients=3,
+            iid=True,
+            num_workers=2,
+            pin_memory=True,
+        )
+        loader = manager.get_client_loader(client_id=0, batch_size=8, shuffle=False)
+
+        self.assertEqual(loader.num_workers, 2)
+        self.assertTrue(loader.pin_memory)
+
+    def test_test_loader_respects_worker_and_pin_memory(self) -> None:
+        manager = DummyDataManager(
+            dataset_name="dummy",
+            num_clients=3,
+            iid=True,
+            num_workers=2,
+            pin_memory=True,
+        )
+        loader = manager.get_test_loader(batch_size=8)
+
+        self.assertEqual(loader.num_workers, 2)
+        self.assertTrue(loader.pin_memory)
+
 
 class TestFederatedDataManagerValidation(unittest.TestCase):
     """测试数据管理器异常路径。"""

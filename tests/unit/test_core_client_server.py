@@ -68,6 +68,18 @@ class TestStandardClient(unittest.TestCase):
         self.assertIn("loss", metrics)
         self.assertIn("accuracy", metrics)
 
+    def test_get_model_state_supports_non_cpu_state(self) -> None:
+        client = StandardClient(
+            client_id=3,
+            model=TinyNet(),
+            train_loader=make_loader(),
+            device="cpu",
+            local_epochs=1,
+            optimizer_name="sgd",
+        )
+        state = client.get_model_state(to_cpu=False)
+        self.assertIn("linear.weight", state)
+
     def test_unknown_optimizer_raises(self) -> None:
         client = StandardClient(
             client_id=2,
@@ -118,6 +130,15 @@ class TestBaseServer(unittest.TestCase):
             restored.load_checkpoint(ckpt)
             self.assertEqual(restored.round_num, 1)
             self.assertEqual(len(restored.history), 1)
+
+    def test_get_global_state_supports_non_cpu_state(self) -> None:
+        server = BaseServer(
+            model=TinyNet(),
+            aggregator=EchoAggregator(),
+            device="cpu",
+        )
+        state = server.get_global_state(to_cpu=False)
+        self.assertIn("linear.weight", state)
 
     def test_server_works_with_fedavg_aggregator(self) -> None:
         model = TinyNet()

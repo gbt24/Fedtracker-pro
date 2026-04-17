@@ -46,9 +46,13 @@ class BaseClient(ABC):
         self.local_model_state: Optional[Dict[str, torch.Tensor]] = None
         self.training_history: list[Dict[str, float]] = []
 
-    def get_model_state(self) -> Dict[str, torch.Tensor]:
+    def get_model_state(self, to_cpu: bool = True) -> Dict[str, torch.Tensor]:
         """获取模型状态。"""
-        return {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+        if to_cpu:
+            return {
+                k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()
+            }
+        return {k: v.detach().clone() for k, v in self.model.state_dict().items()}
 
     def set_model_state(self, state_dict: Dict[str, torch.Tensor]) -> None:
         """设置模型状态。"""
@@ -57,14 +61,15 @@ class BaseClient(ABC):
     def local_train(
         self,
         global_state: Optional[Dict[str, torch.Tensor]] = None,
+        return_cpu_state: bool = True,
     ) -> Dict[str, torch.Tensor]:
         """执行本地训练。"""
         if global_state is not None:
             self.set_model_state(global_state)
 
-        self.local_model_state = copy.deepcopy(self.get_model_state())
+        self.local_model_state = copy.deepcopy(self.get_model_state(to_cpu=True))
         self._train_epoch()
-        return self.get_model_state()
+        return self.get_model_state(to_cpu=return_cpu_state)
 
     def _train_epoch(self) -> None:
         """执行本地训练循环。"""
@@ -80,8 +85,8 @@ class BaseClient(ABC):
             total = 0
 
             for data, target in self.train_loader:
-                data = data.to(self.device)
-                target = target.to(self.device)
+                data = data.to(self.device, non_blocking=True)
+                target = target.to(self.device, non_blocking=True)
 
                 optimizer.zero_grad()
                 output = self.model(data)
@@ -136,8 +141,8 @@ class BaseClient(ABC):
 
         with torch.no_grad():
             for data, target in self.test_loader:
-                data = data.to(self.device)
-                target = target.to(self.device)
+                data = data.to(self.device, non_blocking=True)
+                target = target.to(self.device, non_blocking=True)
                 output = self.model(data)
                 test_loss += float(criterion(output, target).item())
                 _, predicted = output.max(1)

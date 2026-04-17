@@ -35,8 +35,13 @@ class BaseServer:
         self.history: List[Dict[str, float]] = []
         self.client_states: Dict[int, Dict[str, torch.Tensor]] = {}
 
-    def get_global_state(self) -> Dict[str, torch.Tensor]:
+    def get_global_state(self, to_cpu: bool = True) -> Dict[str, torch.Tensor]:
         """获取全局模型参数。"""
+        if not to_cpu:
+            return {
+                key: value.detach().clone()
+                for key, value in self.global_model.state_dict().items()
+            }
         return {
             key: value.detach().cpu().clone()
             for key, value in self.global_model.state_dict().items()
@@ -75,8 +80,8 @@ class BaseServer:
 
         with torch.no_grad():
             for data, target in test_loader:
-                data = data.to(self.device)
-                target = target.to(self.device)
+                data = data.to(self.device, non_blocking=True)
+                target = target.to(self.device, non_blocking=True)
                 output = self.global_model(data)
                 test_loss += float(criterion(output, target).item())
                 _, predicted = output.max(1)
@@ -98,7 +103,7 @@ class BaseServer:
         """保存检查点。"""
         checkpoint = {
             "round": self.round_num,
-            "model_state": self.get_global_state(),
+            "model_state": self.get_global_state(to_cpu=True),
             "history": self.history,
         }
         torch.save(checkpoint, filepath)

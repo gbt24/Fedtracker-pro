@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 import torch
 import torch.nn as nn
@@ -107,6 +108,28 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertIsNotNone(framework.server)
         self.assertEqual(len(framework.clients), 2)
+
+    def test_initialize_passes_loader_settings_to_data_manager(self) -> None:
+        config = self._build_config()
+        config.system.num_workers = 3
+
+        with patch(
+            "src.core.fed_tracker_pro.FederatedDataManager",
+            return_value=DummyDataManager(num_clients=2),
+        ) as mock_manager:
+            framework = FedTrackerPro(config)
+            framework.initialize(TinyClassifier())
+
+        mock_manager.assert_called_once_with(
+            dataset_name=config.data.dataset,
+            data_dir=config.data.data_dir,
+            num_clients=config.federated.num_clients,
+            iid=config.data.iid,
+            alpha=config.data.alpha,
+            num_shards=config.data.num_shards,
+            num_workers=3,
+            pin_memory=False,
+        )
 
     def test_train_one_round_updates_server_round(self) -> None:
         framework = FedTrackerPro(self._build_config())

@@ -56,6 +56,8 @@ class FederatedDataManager:
         iid: bool = True,
         alpha: float = 0.5,
         num_shards: int = 200,
+        num_workers: int = 0,
+        pin_memory: bool = False,
     ) -> None:
         self.dataset_name = dataset_name.lower()
         self.data_dir = data_dir
@@ -63,6 +65,8 @@ class FederatedDataManager:
         self.iid = iid
         self.alpha = alpha
         self.num_shards = num_shards
+        self.num_workers = num_workers
+        self.pin_memory = pin_memory
         self.input_channels = 3
         self.num_classes = 10
 
@@ -191,8 +195,26 @@ class FederatedDataManager:
             raise ValueError(f"Invalid client_id: {client_id}")
 
         dataset = FederatedDataset(self.train_dataset, self.client_indices[client_id])
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+        kwargs = {
+            "batch_size": batch_size,
+            "shuffle": shuffle,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+        }
+        if self.num_workers > 0:
+            kwargs["persistent_workers"] = True
+            kwargs["prefetch_factor"] = 2
+        return DataLoader(dataset, **kwargs)
 
     def get_test_loader(self, batch_size: int = 100) -> DataLoader:
         """获取全局测试集加载器。"""
-        return DataLoader(self.test_dataset, batch_size=batch_size, shuffle=False)
+        kwargs = {
+            "batch_size": batch_size,
+            "shuffle": False,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+        }
+        if self.num_workers > 0:
+            kwargs["persistent_workers"] = True
+            kwargs["prefetch_factor"] = 2
+        return DataLoader(self.test_dataset, **kwargs)
