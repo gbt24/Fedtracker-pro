@@ -401,6 +401,33 @@ class FedTrackerPro:
         path = os.path.join(checkpoint_dir, f"checkpoint_round{round_num}.pth")
         self.server.save_checkpoint(path)
 
+    def _select_robustness_victim_client(self) -> int:
+        """选择用于鲁棒性评估的受害客户端。
+
+        优先选择“自指纹相似度”最高的客户端，避免在少轮训练时固定
+        client 0 恰好未被采样导致结果全零。
+        """
+        if not self.clients:
+            raise RuntimeError("No clients available for robustness evaluation")
+
+        if self.fingerprint_registry is None:
+            return 0
+
+        best_id = 0
+        best_score = -2.0
+        for client_id, client in enumerate(self.clients):
+            try:
+                fp = self.fingerprint_registry.get_fingerprint(client_id)
+                score = fp.verify(client.model)
+            except Exception:
+                score = -2.0
+
+            if score > best_score:
+                best_score = score
+                best_id = client_id
+
+        return best_id
+
     def evaluate_attack_robustness(
         self,
         attacks: List,
@@ -417,6 +444,8 @@ class FedTrackerPro:
             raise RuntimeError("No clients available for robustness evaluation")
 
         results: Dict[str, float] = {}
+        victim_client_id = self._select_robustness_victim_client()
+        victim_model_base = self.clients[victim_client_id].model
         attack_iter = attacks
         if show_progress:
             attack_iter = tqdm(
@@ -427,7 +456,7 @@ class FedTrackerPro:
             )
 
         for attack in attack_iter:
-            victim_model = copy.deepcopy(self.clients[0].model)
+            victim_model = copy.deepcopy(victim_model_base)
             kwargs: Dict[str, object] = {}
             signature = inspect.signature(attack.attack)
             if "train_loader" in signature.parameters:

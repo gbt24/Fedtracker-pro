@@ -565,6 +565,30 @@ class TestFedTrackerPro(unittest.TestCase):
         self.assertEqual(strict["noop"], 0.0)
         self.assertEqual(relaxed["noop"], 1.0)
 
+    def test_evaluate_attack_robustness_uses_selected_victim_not_fixed_client0(
+        self,
+    ) -> None:
+        config = self._build_config_with_fingerprint(num_clients=2)
+        config.federated.client_fraction = 0.5
+
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        with patch.object(framework, "_select_clients", return_value=[1]):
+            framework.train(num_rounds=1)
+
+        results = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            enforce_crypto=False,
+            enforce_watermark=False,
+        )
+
+        self.assertEqual(results["noop"], 1.0)
+        self.assertGreater(results["noop_fingerprint_similarity"], 0.9)
+
     def test_evaluate_attack_robustness_supports_progress_mode(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(
