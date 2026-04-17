@@ -139,6 +139,7 @@ class TestFederatedDataManager(unittest.TestCase):
 
         self.assertEqual(loader.num_workers, 2)
         self.assertTrue(loader.pin_memory)
+        self.assertFalse(loader.persistent_workers)
 
     def test_test_loader_respects_worker_and_pin_memory(self) -> None:
         manager = DummyDataManager(
@@ -152,6 +153,7 @@ class TestFederatedDataManager(unittest.TestCase):
 
         self.assertEqual(loader.num_workers, 2)
         self.assertTrue(loader.pin_memory)
+        self.assertFalse(loader.persistent_workers)
 
 
 class TestFederatedDataManagerValidation(unittest.TestCase):

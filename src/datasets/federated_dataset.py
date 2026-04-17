@@ -202,7 +202,6 @@ class FederatedDataManager:
             "pin_memory": self.pin_memory,
         }
         if self.num_workers > 0:
-            kwargs["persistent_workers"] = True
             kwargs["prefetch_factor"] = 2
         return DataLoader(dataset, **kwargs)
 
@@ -215,6 +214,5 @@ class FederatedDataManager:
             "pin_memory": self.pin_memory,
         }
         if self.num_workers > 0:
-            kwargs["persistent_workers"] = True
             kwargs["prefetch_factor"] = 2
         return DataLoader(self.test_dataset, **kwargs)
