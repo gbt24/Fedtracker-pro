@@ -233,6 +233,25 @@ class FedTrackerPro:
                     return_cpu_state=True,
                     train_loader=train_loader,
                 )
+
+                if self.watermarker is not None and hasattr(self.watermarker, "embed"):
+                    try:
+                        wm_model = self.watermarker.embed(
+                            self.clients[client_id].model,
+                            train_loader,
+                            epochs=self.config.watermark.watermark_epochs,
+                            lr=self.config.watermark.watermark_lr,
+                        )
+                        if wm_model is not None:
+                            self.clients[client_id].model = wm_model
+                        local_state = self.clients[client_id].get_model_state(
+                            to_cpu=True
+                        )
+                    except Exception as exc:
+                        self.logger.warning(
+                            f"Watermark embedding failed for client {client_id}: {exc}"
+                        )
+
                 local_states.append(local_state)
 
             self.server.aggregate(local_states)

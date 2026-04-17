@@ -183,6 +183,90 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertEqual(framework.server.round_num, 1)
 
+    def test_train_embeds_watermark_when_enabled(self) -> None:
+        config = self._build_config()
+        config.watermark.enabled = True
+        data_manager = DummyDataManager(num_clients=2)
+
+        framework = FedTrackerPro(config)
+        framework.initialize(TinyClassifier(), data_manager=data_manager)
+
+        class _WatermarkerStub:
+            def __init__(self) -> None:
+                self.embed_calls = 0
+                self.used_epochs: list[int] = []
+                self.used_lr: list[float] = []
+
+            def embed(
+                self,
+                model: nn.Module,
+                train_loader: torch.utils.data.DataLoader,
+                epochs: int = 5,
+                lr: float = 0.001,
+                main_task_weight: float = 1.0,
+                watermark_weight: float = 1.0,
+            ) -> nn.Module:
+                _ = (
+                    model,
+                    train_loader,
+                    epochs,
+                    lr,
+                    main_task_weight,
+                    watermark_weight,
+                )
+                self.embed_calls += 1
+                self.used_epochs.append(epochs)
+                self.used_lr.append(lr)
+                return model
+
+        framework.watermarker = _WatermarkerStub()
+        framework.train(num_rounds=1)
+
+        self.assertEqual(framework.watermarker.embed_calls, 2)
+        self.assertEqual(framework.watermarker.used_epochs, [5, 5])
+        self.assertEqual(framework.watermarker.used_lr, [0.001, 0.001])
+
+    def test_train_uses_returned_watermarked_model(self) -> None:
+        config = self._build_config()
+        config.watermark.enabled = True
+        data_manager = DummyDataManager(num_clients=2)
+
+        framework = FedTrackerPro(config)
+        framework.initialize(TinyClassifier(), data_manager=data_manager)
+
+        class _WatermarkerReturnModelStub:
+            def __init__(self) -> None:
+                self.returned_model_ids: list[int] = []
+
+            def embed(
+                self,
+                model: nn.Module,
+                train_loader: torch.utils.data.DataLoader,
+                epochs: int = 5,
+                lr: float = 0.001,
+                main_task_weight: float = 1.0,
+                watermark_weight: float = 1.0,
+            ) -> nn.Module:
+                _ = (
+                    model,
+                    train_loader,
+                    epochs,
+                    lr,
+                    main_task_weight,
+                    watermark_weight,
+                )
+                new_model = TinyClassifier()
+                self.returned_model_ids.append(id(new_model))
+                return new_model
+
+        framework.watermarker = _WatermarkerReturnModelStub()
+        framework.train(num_rounds=1)
+
+        current_ids = {id(client.model) for client in framework.clients}
+        self.assertTrue(
+            current_ids.issubset(set(framework.watermarker.returned_model_ids))
+        )
+
     def test_verify_ownership_without_defense_modules(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(
