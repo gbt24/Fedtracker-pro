@@ -58,6 +58,8 @@ class FederatedDataManager:
         num_shards: int = 200,
         num_workers: int = 0,
         pin_memory: bool = False,
+        persistent_workers: bool = False,
+        prefetch_factor: int = 2,
     ) -> None:
         self.dataset_name = dataset_name.lower()
         self.data_dir = data_dir
@@ -67,6 +69,12 @@ class FederatedDataManager:
         self.num_shards = num_shards
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.persistent_workers = persistent_workers
+        self.prefetch_factor = prefetch_factor
+        if self.num_workers < 0:
+            raise ValueError("num_workers must be non-negative")
+        if self.prefetch_factor <= 0:
+            raise ValueError("prefetch_factor must be greater than 0")
         self.input_channels = 3
         self.num_classes = 10
 
@@ -202,7 +210,8 @@ class FederatedDataManager:
             "pin_memory": self.pin_memory,
         }
         if self.num_workers > 0:
-            kwargs["prefetch_factor"] = 2
+            kwargs["persistent_workers"] = self.persistent_workers
+            kwargs["prefetch_factor"] = self.prefetch_factor
         return DataLoader(dataset, **kwargs)
 
     def get_test_loader(self, batch_size: int = 100) -> DataLoader:
@@ -214,5 +223,6 @@ class FederatedDataManager:
             "pin_memory": self.pin_memory,
         }
         if self.num_workers > 0:
-            kwargs["prefetch_factor"] = 2
+            kwargs["persistent_workers"] = self.persistent_workers
+            kwargs["prefetch_factor"] = self.prefetch_factor
         return DataLoader(self.test_dataset, **kwargs)

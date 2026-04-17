@@ -155,6 +155,38 @@ class TestFederatedDataManager(unittest.TestCase):
         self.assertTrue(loader.pin_memory)
         self.assertFalse(loader.persistent_workers)
 
+    def test_loader_supports_configurable_persistent_workers(self) -> None:
+        manager = DummyDataManager(
+            dataset_name="dummy",
+            num_clients=3,
+            iid=True,
+            num_workers=2,
+            pin_memory=True,
+            persistent_workers=True,
+            prefetch_factor=3,
+        )
+        loader = manager.get_client_loader(client_id=0, batch_size=8, shuffle=False)
+        test_loader = manager.get_test_loader(batch_size=8)
+
+        self.assertTrue(loader.persistent_workers)
+        self.assertEqual(loader.prefetch_factor, 3)
+        self.assertTrue(test_loader.persistent_workers)
+        self.assertEqual(test_loader.prefetch_factor, 3)
+
+    def test_rejects_invalid_worker_related_config(self) -> None:
+        with self.assertRaises(ValueError):
+            DummyDataManager(
+                dataset_name="dummy", num_clients=3, iid=True, num_workers=-1
+            )
+        with self.assertRaises(ValueError):
+            DummyDataManager(
+                dataset_name="dummy",
+                num_clients=3,
+                iid=True,
+                num_workers=2,
+                prefetch_factor=0,
+            )
+
 
 class TestFederatedDataManagerValidation(unittest.TestCase):
     """测试数据管理器异常路径。"""

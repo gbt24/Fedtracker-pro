@@ -26,8 +26,8 @@ class ProtectedClient(StandardClient):
         self,
         client_id: int,
         model: torch.nn.Module,
-        train_loader: torch.utils.data.DataLoader,
         fingerprinter: ParametricFingerprint,
+        train_loader: Optional[torch.utils.data.DataLoader] = None,
         crypto_verifier: Optional[object] = None,
         test_loader: Optional[torch.utils.data.DataLoader] = None,
         device: str = "cpu",
@@ -67,8 +67,13 @@ class ProtectedClient(StandardClient):
         self,
         global_state: Optional[Dict[str, torch.Tensor]] = None,
         return_cpu_state: bool = True,
+        train_loader: Optional[torch.utils.data.DataLoader] = None,
     ) -> Dict[str, torch.Tensor]:
         """重写: 训练 → 嵌入保护 → 返回状态。"""
-        super().local_train(global_state, return_cpu_state=False)
+        super().local_train(
+            global_state,
+            return_cpu_state=False,
+            train_loader=train_loader,
+        )
         self.embed_protection()
         return self.get_model_state(to_cpu=return_cpu_state)

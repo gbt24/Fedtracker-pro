@@ -24,7 +24,7 @@ class BaseClient(ABC):
         self,
         client_id: int,
         model: nn.Module,
-        train_loader: torch.utils.data.DataLoader,
+        train_loader: Optional[torch.utils.data.DataLoader] = None,
         test_loader: Optional[torch.utils.data.DataLoader] = None,
         device: str = "cuda",
         local_epochs: int = 5,
@@ -62,21 +62,26 @@ class BaseClient(ABC):
         self,
         global_state: Optional[Dict[str, torch.Tensor]] = None,
         return_cpu_state: bool = True,
+        train_loader: Optional[torch.utils.data.DataLoader] = None,
     ) -> Dict[str, torch.Tensor]:
         """执行本地训练。"""
         if global_state is not None:
             self.set_model_state(global_state)
 
+        active_loader = train_loader if train_loader is not None else self.train_loader
+        if active_loader is None:
+            raise ValueError("train_loader is not set")
+
         self.local_model_state = copy.deepcopy(self.get_model_state(to_cpu=True))
-        self._train_epoch()
+        self._train_epoch(active_loader)
         return self.get_model_state(to_cpu=return_cpu_state)
 
-    def _train_epoch(self) -> None:
+    def _train_epoch(self, train_loader: torch.utils.data.DataLoader) -> None:
         """执行本地训练循环。"""
         self.model.train()
         optimizer = self._get_optimizer()
         criterion = nn.CrossEntropyLoss()
-        if len(self.train_loader) == 0:
+        if len(train_loader) == 0:
             raise ValueError("train_loader is empty")
 
         for epoch in range(self.local_epochs):
@@ -84,7 +89,7 @@ class BaseClient(ABC):
             correct = 0
             total = 0
 
-            for data, target in self.train_loader:
+            for data, target in train_loader:
                 data = data.to(self.device, non_blocking=True)
                 target = target.to(self.device, non_blocking=True)
 
@@ -100,7 +105,7 @@ class BaseClient(ABC):
                 correct += int(predicted.eq(target).sum().item())
 
             accuracy = 100.0 * correct / total if total else 0.0
-            avg_loss = epoch_loss / len(self.train_loader)
+            avg_loss = epoch_loss / len(train_loader)
             self.training_history.append(
                 {
                     "epoch": float(epoch),

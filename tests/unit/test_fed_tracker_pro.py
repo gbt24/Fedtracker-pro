@@ -109,9 +109,26 @@ class TestFedTrackerPro(unittest.TestCase):
         self.assertIsNotNone(framework.server)
         self.assertEqual(len(framework.clients), 2)
 
+    def test_train_fetches_client_loader_on_demand(self) -> None:
+        data_manager = DummyDataManager(num_clients=2)
+        with patch.object(
+            data_manager,
+            "get_client_loader",
+            wraps=data_manager.get_client_loader,
+        ) as mocked_get_loader:
+            framework = FedTrackerPro(self._build_config())
+            framework.initialize(TinyClassifier(), data_manager=data_manager)
+
+            self.assertEqual(mocked_get_loader.call_count, 0)
+            framework.train(num_rounds=1)
+
+        self.assertEqual(mocked_get_loader.call_count, 2)
+
     def test_initialize_passes_loader_settings_to_data_manager(self) -> None:
         config = self._build_config()
         config.system.num_workers = 3
+        config.system.persistent_workers = True
+        config.system.prefetch_factor = 3
 
         with patch(
             "src.core.fed_tracker_pro.FederatedDataManager",
@@ -129,6 +146,8 @@ class TestFedTrackerPro(unittest.TestCase):
             num_shards=config.data.num_shards,
             num_workers=3,
             pin_memory=False,
+            persistent_workers=True,
+            prefetch_factor=3,
         )
 
     def test_train_one_round_updates_server_round(self) -> None:

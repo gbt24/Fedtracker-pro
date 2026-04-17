@@ -122,6 +122,8 @@ class SystemConfig:
 
     device: str = "cuda"
     num_workers: int = 4
+    persistent_workers: bool = False
+    prefetch_factor: int = 2
     seed: int = 42
     log_dir: str = "./logs"
     checkpoint_dir: str = "./checkpoints"

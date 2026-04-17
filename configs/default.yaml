@@ -75,6 +75,8 @@ verification:
 system:
   device: "cuda"
   num_workers: 4
+  persistent_workers: false
+  prefetch_factor: 2
   seed: 42
   log_dir: "./logs"
   checkpoint_dir: "./checkpoints"

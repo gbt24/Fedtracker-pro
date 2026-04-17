@@ -86,6 +86,8 @@ class FedTrackerPro:
                 num_shards=self.config.data.num_shards,
                 num_workers=self.config.system.num_workers,
                 pin_memory=self.device.startswith("cuda"),
+                persistent_workers=self.config.system.persistent_workers,
+                prefetch_factor=self.config.system.prefetch_factor,
             )
         else:
             self.data_manager = data_manager
@@ -157,18 +159,12 @@ class FedTrackerPro:
 
         self.clients = []
         for client_id in range(self.config.federated.num_clients):
-            train_loader = self.data_manager.get_client_loader(
-                client_id=client_id,
-                batch_size=self.config.federated.local_batch_size,
-                shuffle=True,
-            )
-
             if self.fingerprint_registry is not None:
                 fp = self.fingerprint_registry.get_fingerprint(client_id)
                 client = ProtectedClient(
                     client_id=client_id,
                     model=copy.deepcopy(self.global_model),
-                    train_loader=train_loader,
+                    train_loader=None,
                     fingerprinter=fp,
                     crypto_verifier=self.crypto_verifier,
                     device=self.device,
@@ -182,7 +178,7 @@ class FedTrackerPro:
                 client = StandardClient(
                     client_id=client_id,
                     model=copy.deepcopy(self.global_model),
-                    train_loader=train_loader,
+                    train_loader=None,
                     device=self.device,
                     local_epochs=self.config.federated.local_epochs,
                     local_lr=self.config.federated.local_lr,
@@ -227,9 +223,15 @@ class FedTrackerPro:
             local_states: list[Dict[str, torch.Tensor]] = []
             global_state = self.server.get_global_state(to_cpu=False)
             for client_id in self._select_clients():
+                train_loader = self.data_manager.get_client_loader(
+                    client_id=client_id,
+                    batch_size=self.config.federated.local_batch_size,
+                    shuffle=True,
+                )
                 local_state = self.clients[client_id].local_train(
                     global_state=global_state,
                     return_cpu_state=True,
+                    train_loader=train_loader,
                 )
                 local_states.append(local_state)
 
