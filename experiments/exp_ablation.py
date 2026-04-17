@@ -28,6 +28,8 @@ from experiments.exp_robustness import build_robustness_attacks
 from experiments.utils import (
     build_model_from_config,
     create_experiment_dir,
+    progress_iter,
+    resolve_progress_flag,
     save_results,
 )
 
@@ -93,6 +95,7 @@ def run_ablation_experiment(
     config_path: str,
     num_rounds: Optional[int] = None,
     output_dir: Optional[str] = None,
+    show_progress: bool = False,
 ) -> Dict[str, Any]:
     """运行消融实验并返回结果。"""
     base_config = Config(config_path)
@@ -100,14 +103,26 @@ def run_ablation_experiment(
 
     all_results: Dict[str, Dict[str, float]] = {}
     groups = get_ablation_groups()
-    for group_name, flags in groups.items():
+    group_iter = progress_iter(
+        groups.items(),
+        enabled=show_progress,
+        total=len(groups),
+        desc="ablation-groups",
+        unit="group",
+    )
+
+    for group_name, flags in group_iter:
         config = copy.deepcopy(base_config)
         _apply_group_flags(config, flags)
 
         model = build_model_from_config(config)
         framework = FedTrackerPro(config)
         framework.initialize(model)
-        framework.train(num_rounds=num_rounds)
+        framework.train(
+            num_rounds=num_rounds,
+            show_progress=show_progress,
+            progress_desc=f"ablation-train:{group_name}",
+        )
 
         if framework.data_manager is None:
             raise RuntimeError("Data manager is not initialized")
@@ -115,7 +130,10 @@ def run_ablation_experiment(
         attacks = build_robustness_attacks(device=framework.device)
         test_loader = framework.data_manager.get_test_loader()
         all_results[group_name] = framework.evaluate_attack_robustness(
-            attacks, test_loader
+            attacks,
+            test_loader,
+            show_progress=show_progress,
+            progress_desc=f"ablation-attacks:{group_name}",
         )
 
     base_dir = output_dir if output_dir is not None else "./experiments/results"
@@ -150,6 +168,20 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="实验结果输出根目录（默认: ./experiments/results）",
     )
+    progress_group = parser.add_mutually_exclusive_group()
+    progress_group.add_argument(
+        "--progress",
+        dest="progress",
+        action="store_true",
+        help="显示进度条",
+    )
+    progress_group.add_argument(
+        "--no-progress",
+        dest="progress",
+        action="store_false",
+        help="关闭进度条",
+    )
+    parser.set_defaults(progress=None)
     return parser.parse_args(argv)
 
 
@@ -160,6 +192,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         config_path=args.config,
         num_rounds=args.num_rounds,
         output_dir=args.output_dir,
+        show_progress=resolve_progress_flag(args.progress),
     )
     print(f"[ablation] results saved to: {payload['results_path']}")
     print(payload["results"])

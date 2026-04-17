@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, List
+import sys
+from typing import Any, Dict, Iterable, List, Optional
 
 import torch
 
@@ -130,3 +131,28 @@ def build_model_from_config(config: Config):
             "Supported: resnet18, resnet34, vgg11, vgg16, mobilenetv2."
         )
     return builders[model_name]()
+
+
+def resolve_progress_flag(progress: Optional[bool]) -> bool:
+    """解析是否启用进度条。"""
+    if progress is not None:
+        return progress
+    return sys.stderr.isatty()
+
+
+def progress_iter(
+    iterable: Iterable,
+    *,
+    enabled: bool,
+    total: int,
+    desc: str,
+    unit: str,
+):
+    """根据开关返回带进度条或原始迭代器。"""
+    if not enabled:
+        return iterable
+    try:
+        from tqdm import tqdm
+    except ModuleNotFoundError:  # pragma: no cover
+        return iterable
+    return tqdm(iterable, total=total, desc=desc, unit=unit)

@@ -20,6 +20,7 @@ from experiments.exp_scalability import generate_client_scenarios
 from experiments.utils import (
     aggregate_client_metrics,
     create_experiment_dir,
+    resolve_progress_flag,
     save_results,
 )
 
@@ -62,6 +63,16 @@ class TestExperimentUtils(unittest.TestCase):
         self.assertAlmostEqual(agg["accuracy_mean"], 85.0, places=6)
         self.assertEqual(agg["loss_min"], 0.5)
         self.assertEqual(agg["loss_max"], 1.0)
+
+    def test_resolve_progress_flag_prefers_explicit_value(self) -> None:
+        self.assertTrue(resolve_progress_flag(True))
+        self.assertFalse(resolve_progress_flag(False))
+
+    def test_resolve_progress_flag_follows_tty_when_unspecified(self) -> None:
+        with patch("experiments.utils.sys.stderr.isatty", return_value=True):
+            self.assertTrue(resolve_progress_flag(None))
+        with patch("experiments.utils.sys.stderr.isatty", return_value=False):
+            self.assertFalse(resolve_progress_flag(None))
 
 
 class TestExperimentScripts(unittest.TestCase):
@@ -154,7 +165,13 @@ class TestExperimentCliEntry(unittest.TestCase):
             patch("builtins.print") as mock_print,
         ):
             exit_code = exp_baseline.main(
-                ["--config", "configs/default.yaml", "--num-rounds", "1"]
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--no-progress",
+                ]
             )
 
         self.assertEqual(exit_code, 0)
@@ -162,6 +179,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             config_path="configs/default.yaml",
             num_rounds=1,
             output_dir=None,
+            show_progress=False,
         )
         mock_print.assert_called()
 
@@ -180,7 +198,13 @@ class TestExperimentCliEntry(unittest.TestCase):
             patch("builtins.print") as mock_print,
         ):
             exit_code = exp_ablation.main(
-                ["--config", "configs/default.yaml", "--num-rounds", "1"]
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--no-progress",
+                ]
             )
 
         self.assertEqual(exit_code, 0)
@@ -188,6 +212,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             config_path="configs/default.yaml",
             num_rounds=1,
             output_dir=None,
+            show_progress=False,
         )
         mock_print.assert_called()
 
@@ -203,7 +228,13 @@ class TestExperimentCliEntry(unittest.TestCase):
             patch("builtins.print") as mock_print,
         ):
             exit_code = exp_robustness.main(
-                ["--config", "configs/default.yaml", "--num-rounds", "1"]
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--no-progress",
+                ]
             )
 
         self.assertEqual(exit_code, 0)
@@ -211,6 +242,7 @@ class TestExperimentCliEntry(unittest.TestCase):
             config_path="configs/default.yaml",
             num_rounds=1,
             output_dir=None,
+            show_progress=False,
         )
         mock_print.assert_called()
 
@@ -240,6 +272,7 @@ class TestExperimentCliEntry(unittest.TestCase):
                     "20",
                     "--step",
                     "10",
+                    "--no-progress",
                 ]
             )
 
@@ -251,8 +284,102 @@ class TestExperimentCliEntry(unittest.TestCase):
             step=10,
             num_rounds=1,
             output_dir=None,
+            show_progress=False,
         )
         mock_print.assert_called()
+
+    def test_baseline_main_supports_explicit_progress_flag(self) -> None:
+        from experiments import exp_baseline
+
+        with (
+            patch.object(
+                exp_baseline,
+                "run_baseline_experiment",
+                return_value={
+                    "results": {"fine_tuning": 1.0},
+                    "results_path": "a.json",
+                },
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_baseline.main(
+                ["--config", "configs/default.yaml", "--num-rounds", "1", "--progress"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
+
+    def test_ablation_main_supports_explicit_progress_flag(self) -> None:
+        from experiments import exp_ablation
+
+        with (
+            patch.object(
+                exp_ablation,
+                "run_ablation_experiment",
+                return_value={
+                    "results": {"full": {"fine_tuning": 1.0}},
+                    "results_path": "b.json",
+                },
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_ablation.main(
+                ["--config", "configs/default.yaml", "--num-rounds", "1", "--progress"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
+
+    def test_robustness_main_supports_explicit_progress_flag(self) -> None:
+        from experiments import exp_robustness
+
+        with (
+            patch.object(
+                exp_robustness,
+                "run_robustness_experiment",
+                return_value={"results": {"ambiguity": 1.0}, "results_path": "c.json"},
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_robustness.main(
+                ["--config", "configs/default.yaml", "--num-rounds", "1", "--progress"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
+
+    def test_scalability_main_supports_explicit_progress_flag(self) -> None:
+        from experiments import exp_scalability
+
+        with (
+            patch.object(
+                exp_scalability,
+                "run_scalability_experiment",
+                return_value={
+                    "results": {"clients_10": {"accuracy": 10.0, "loss": 1.0}},
+                    "results_path": "d.json",
+                },
+            ) as mock_run,
+            patch("builtins.print"),
+        ):
+            exit_code = exp_scalability.main(
+                [
+                    "--config",
+                    "configs/default.yaml",
+                    "--num-rounds",
+                    "1",
+                    "--min-clients",
+                    "10",
+                    "--max-clients",
+                    "20",
+                    "--step",
+                    "10",
+                    "--progress",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_args.kwargs["show_progress"], True)
 
     def test_module_help_has_no_runtime_warning(self) -> None:
         repo_root = os.path.join(os.path.dirname(__file__), "../..")

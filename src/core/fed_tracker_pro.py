@@ -19,6 +19,15 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 
+try:
+    from tqdm import tqdm
+except ModuleNotFoundError:  # pragma: no cover
+
+    def tqdm(iterable, *args, **kwargs):
+        _ = args, kwargs
+        return iterable
+
+
 from .base_client import StandardClient
 from .base_server import BaseServer
 from .config import Config
@@ -188,7 +197,12 @@ class FedTrackerPro:
         num_selected = max(1, int(num_clients * fraction))
         return torch.randperm(num_clients)[:num_selected].tolist()
 
-    def train(self, num_rounds: Optional[int] = None) -> None:
+    def train(
+        self,
+        num_rounds: Optional[int] = None,
+        show_progress: bool = False,
+        progress_desc: Optional[str] = None,
+    ) -> None:
         """执行联邦训练。"""
         if self.server is None:
             raise RuntimeError("Framework not initialized")
@@ -198,7 +212,16 @@ class FedTrackerPro:
         if num_rounds is None:
             num_rounds = self.config.federated.global_rounds
 
-        for round_idx in range(num_rounds):
+        rounds = range(num_rounds)
+        if show_progress:
+            rounds = tqdm(
+                rounds,
+                total=num_rounds,
+                desc=progress_desc or "federated-train",
+                unit="round",
+            )
+
+        for round_idx in rounds:
             local_states: list[Dict[str, torch.Tensor]] = []
             global_state = self.server.get_global_state()
             for client_id in self._select_clients():
@@ -274,6 +297,8 @@ class FedTrackerPro:
         self,
         attacks: List,
         test_loader: torch.utils.data.DataLoader,
+        show_progress: bool = False,
+        progress_desc: Optional[str] = None,
     ) -> Dict[str, float]:
         """评估攻击下的所有权存活率。"""
         _ = test_loader
@@ -281,7 +306,16 @@ class FedTrackerPro:
             raise RuntimeError("No clients available for robustness evaluation")
 
         results: Dict[str, float] = {}
-        for attack in attacks:
+        attack_iter = attacks
+        if show_progress:
+            attack_iter = tqdm(
+                attacks,
+                total=len(attacks),
+                desc=progress_desc or "attack-eval",
+                unit="attack",
+            )
+
+        for attack in attack_iter:
             victim_model = copy.deepcopy(self.clients[0].model)
             kwargs: Dict[str, object] = {}
             signature = inspect.signature(attack.attack)

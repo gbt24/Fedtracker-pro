@@ -118,6 +118,16 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertEqual(framework.server.round_num, 1)
 
+    def test_train_supports_progress_mode(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        framework.train(num_rounds=1, show_progress=True, progress_desc="test-train")
+
+        self.assertEqual(framework.server.round_num, 1)
+
     def test_verify_ownership_without_defense_modules(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(
@@ -173,6 +183,21 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertIn("noop", results)
         self.assertEqual(results["noop"], 1.0)
+
+    def test_evaluate_attack_robustness_supports_progress_mode(self) -> None:
+        framework = FedTrackerPro(self._build_config())
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        results = framework.evaluate_attack_robustness(
+            [NoOpAttack()],
+            make_loader(),
+            show_progress=True,
+            progress_desc="test-attacks",
+        )
+
+        self.assertIn("noop", results)
 
     def test_evaluate_attack_robustness_supports_fine_tuning_attack(self) -> None:
         framework = FedTrackerPro(self._build_config())

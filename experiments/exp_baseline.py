@@ -27,6 +27,7 @@ from src.utils.data_utils import set_seed
 from experiments.utils import (
     build_model_from_config,
     create_experiment_dir,
+    resolve_progress_flag,
     save_results,
 )
 
@@ -44,6 +45,7 @@ def run_baseline_experiment(
     config_path: str,
     num_rounds: Optional[int] = None,
     output_dir: Optional[str] = None,
+    show_progress: bool = False,
 ) -> Dict[str, Any]:
     """运行基线实验并返回结果。"""
     config = Config(config_path)
@@ -52,14 +54,23 @@ def run_baseline_experiment(
     model = build_model_from_config(config)
     framework = FedTrackerPro(config)
     framework.initialize(model)
-    framework.train(num_rounds=num_rounds)
+    framework.train(
+        num_rounds=num_rounds,
+        show_progress=show_progress,
+        progress_desc="baseline-train",
+    )
 
     if framework.data_manager is None:
         raise RuntimeError("Data manager is not initialized")
 
     attacks = build_default_attacks(device=framework.device)
     test_loader = framework.data_manager.get_test_loader()
-    results = framework.evaluate_attack_robustness(attacks, test_loader)
+    results = framework.evaluate_attack_robustness(
+        attacks,
+        test_loader,
+        show_progress=show_progress,
+        progress_desc="baseline-attacks",
+    )
 
     base_dir = output_dir if output_dir is not None else "./experiments/results"
     exp_dir = create_experiment_dir(base_dir=base_dir)
@@ -93,6 +104,20 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="实验结果输出根目录（默认: ./experiments/results）",
     )
+    progress_group = parser.add_mutually_exclusive_group()
+    progress_group.add_argument(
+        "--progress",
+        dest="progress",
+        action="store_true",
+        help="显示进度条",
+    )
+    progress_group.add_argument(
+        "--no-progress",
+        dest="progress",
+        action="store_false",
+        help="关闭进度条",
+    )
+    parser.set_defaults(progress=None)
     return parser.parse_args(argv)
 
 
@@ -103,6 +128,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         config_path=args.config,
         num_rounds=args.num_rounds,
         output_dir=args.output_dir,
+        show_progress=resolve_progress_flag(args.progress),
     )
     print(f"[baseline] results saved to: {payload['results_path']}")
     print(payload["results"])
