@@ -24,10 +24,12 @@ from experiments.exp_robustness import build_robustness_attacks
 from experiments.exp_scalability import generate_client_scenarios
 from experiments.utils import (
     aggregate_client_metrics,
+    build_model_from_config,
     create_experiment_dir,
     resolve_progress_flag,
     save_results,
 )
+from src.core.config import Config
 
 
 class TestExperimentUtils(unittest.TestCase):
@@ -78,6 +80,13 @@ class TestExperimentUtils(unittest.TestCase):
             self.assertTrue(resolve_progress_flag(None))
         with patch("experiments.utils.sys.stderr.isatty", return_value=False):
             self.assertFalse(resolve_progress_flag(None))
+
+    def test_build_model_from_config_rejects_pretrained(self) -> None:
+        config = Config()
+        config.model.pretrained = True
+
+        with self.assertRaises(ValueError):
+            build_model_from_config(config)
 
 
 class TestExperimentScripts(unittest.TestCase):

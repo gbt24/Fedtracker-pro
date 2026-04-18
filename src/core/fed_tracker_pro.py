@@ -69,6 +69,7 @@ class FedTrackerPro:
         self.fingerprint_registry: Optional[ClientFingerprintRegistry] = None
         self.adaptive_allocator: Optional[AdaptiveAllocator] = None
         self.crypto_verifier: Optional[CryptographicVerification] = None
+        self.crypto_verifiers: Dict[int, CryptographicVerification] = {}
         self.unlearning_guide: Optional[UnlearningGuidedRelocation] = None
 
     def initialize(
@@ -108,6 +109,11 @@ class FedTrackerPro:
     def _setup_defense_modules(self) -> None:
         """按配置启用防御模块。"""
         if self.config.watermark.enabled:
+            watermark_type = self.config.watermark.type.lower()
+            if watermark_type not in {"cl_backdoor", "cl", "continual_learning"}:
+                raise ValueError(
+                    f"Unsupported watermark type: {self.config.watermark.type}"
+                )
             self.watermarker = ContinualLearningWatermark(
                 trigger_size=self.config.watermark.trigger_size,
                 target_label=0,
@@ -117,6 +123,11 @@ class FedTrackerPro:
             )
 
         if self.config.fingerprint.enabled:
+            fingerprint_type = self.config.fingerprint.type.lower()
+            if fingerprint_type not in {"parametric", "param"}:
+                raise ValueError(
+                    f"Unsupported fingerprint type: {self.config.fingerprint.type}"
+                )
             self.fingerprint_registry = ClientFingerprintRegistry(
                 fingerprint_dim=self.config.fingerprint.fingerprint_dim,
                 embedding_strength=self.config.fingerprint.embedding_strength,
@@ -144,6 +155,7 @@ class FedTrackerPro:
                 hash_algorithm=self.config.crypto.hash_algorithm,
                 device=self.device,
             )
+            self.crypto_verifiers = {}
 
         if self.config.unlearning.enabled:
             self.unlearning_guide = UnlearningGuidedRelocation(
@@ -159,7 +171,18 @@ class FedTrackerPro:
             raise RuntimeError("Framework not initialized")
 
         self.clients = []
+        self.crypto_verifiers = {}
         for client_id in range(self.config.federated.num_clients):
+            client_crypto_verifier: Optional[CryptographicVerification] = None
+            if self.config.crypto.enabled:
+                client_crypto_verifier = CryptographicVerification(
+                    key_size=self.config.crypto.key_size,
+                    scheme=self.config.crypto.scheme,
+                    hash_algorithm=self.config.crypto.hash_algorithm,
+                    device=self.device,
+                )
+                self.crypto_verifiers[client_id] = client_crypto_verifier
+
             if self.fingerprint_registry is not None:
                 fp = self.fingerprint_registry.get_fingerprint(client_id)
                 client = ProtectedClient(
@@ -167,7 +190,7 @@ class FedTrackerPro:
                     model=copy.deepcopy(self.global_model),
                     train_loader=None,
                     fingerprinter=fp,
-                    crypto_verifier=self.crypto_verifier,
+                    crypto_verifier=client_crypto_verifier,
                     device=self.device,
                     local_epochs=self.config.federated.local_epochs,
                     local_lr=self.config.federated.local_lr,
@@ -188,6 +211,43 @@ class FedTrackerPro:
                     weight_decay=self.config.federated.weight_decay,
                 )
             self.clients.append(client)
+
+    def _verify_crypto_model(
+        self,
+        model: nn.Module,
+        *,
+        preferred_client_id: Optional[int] = None,
+        candidate_clients: Optional[List[int]] = None,
+    ) -> Dict[str, object]:
+        """使用客户端签名上下文验证模型。"""
+        candidates: List[int] = []
+        if preferred_client_id is not None:
+            candidates.append(preferred_client_id)
+        if candidate_clients is not None:
+            candidates.extend(candidate_clients)
+        if not candidates:
+            candidates = list(range(len(self.clients)))
+
+        tried: set[int] = set()
+        for client_id in candidates:
+            if client_id in tried:
+                continue
+            tried.add(client_id)
+            verifier = self.crypto_verifiers.get(client_id)
+            if verifier is None:
+                continue
+            try:
+                result = verifier.verify_model(model)
+            except Exception:
+                continue
+            payload: Dict[str, object] = dict(result)
+            payload.setdefault("client_id", client_id)
+            if bool(payload.get("is_valid", False)):
+                return payload
+
+        if self.crypto_verifier is not None:
+            return self.crypto_verifier.verify_model(model)
+        return {"is_valid": False}
 
     def _select_clients(self) -> list[int]:
         """按采样率随机选择客户端。"""
@@ -220,23 +280,53 @@ class FedTrackerPro:
                 unit="round",
             )
 
+        protection_strengths: Dict[int, float] = {
+            cid: max(
+                self.config.fingerprint.embedding_strength,
+                self.config.fingerprint.min_strength,
+            )
+            for cid in range(self.config.federated.num_clients)
+        }
+
         for round_idx in rounds:
             local_states: list[Dict[str, torch.Tensor]] = []
             global_state = self.server.get_global_state(to_cpu=False)
-            for client_id in self._select_clients():
+            selected_clients = self._select_clients()
+            tolerance_scores: Dict[str, float] = {}
+            for client_id in selected_clients:
                 train_loader = self.data_manager.get_client_loader(
                     client_id=client_id,
                     batch_size=self.config.federated.local_batch_size,
                     shuffle=True,
                 )
-                local_state = self.clients[client_id].local_train(
-                    global_state=global_state,
-                    return_cpu_state=True,
-                    train_loader=train_loader,
+
+                strength = protection_strengths.get(
+                    client_id,
+                    max(
+                        self.config.fingerprint.embedding_strength,
+                        self.config.fingerprint.min_strength,
+                    ),
                 )
+                client = self.clients[client_id]
+                if isinstance(client, ProtectedClient):
+                    local_state = client.local_train(
+                        global_state=global_state,
+                        return_cpu_state=True,
+                        train_loader=train_loader,
+                        protection_strength=strength,
+                        unlearning_guide=self.unlearning_guide,
+                    )
+                else:
+                    local_state = client.local_train(
+                        global_state=global_state,
+                        return_cpu_state=True,
+                        train_loader=train_loader,
+                    )
 
                 if self.watermarker is not None and hasattr(self.watermarker, "embed"):
                     try:
+                        if hasattr(self.watermarker, "reset_memory"):
+                            self.watermarker.reset_memory()
                         wm_model = self.watermarker.embed(
                             self.clients[client_id].model,
                             train_loader,
@@ -252,7 +342,11 @@ class FedTrackerPro:
                             self.clients[client_id], "embed_protection", None
                         )
                         if callable(embed_fn):
-                            embed_fn()
+                            embed_fn(
+                                train_loader=train_loader,
+                                fingerprint_strength=strength,
+                                unlearning_guide=self.unlearning_guide,
+                            )
 
                         local_state = self.clients[client_id].get_model_state(
                             to_cpu=True
@@ -262,10 +356,67 @@ class FedTrackerPro:
                             f"Watermark embedding failed for client {client_id}: {exc}"
                         )
 
+                if (
+                    self.config.crypto.enabled
+                    and not isinstance(client, ProtectedClient)
+                    and client_id in self.crypto_verifiers
+                ):
+                    self.crypto_verifiers[client_id].embed_to_model(
+                        client.model,
+                        client_id=client_id,
+                    )
+                    local_state = client.get_model_state(to_cpu=True)
+
                 local_states.append(local_state)
+
+                if (
+                    self.adaptive_allocator is not None
+                    and self.fingerprint_registry is not None
+                ):
+                    try:
+                        fingerprinter = self.fingerprint_registry.get_fingerprint(
+                            client_id
+                        )
+                        similarity = fingerprinter.verify(self.clients[client_id].model)
+                    except Exception:
+                        similarity = 0.0
+                    latest = self.clients[client_id].training_history[-1]
+                    accuracy = float(latest.get("accuracy", 0.0)) / 100.0
+                    loss = float(latest.get("loss", 0.0))
+                    tolerance_scores[str(client_id)] = (
+                        self.adaptive_allocator.evaluate_tolerance(
+                            accuracy=accuracy,
+                            loss=loss,
+                            fingerprint_similarity=similarity,
+                        )
+                    )
 
             self.server.aggregate(local_states)
             self.global_model = self.server.global_model
+
+            if (
+                self.adaptive_allocator is not None
+                and tolerance_scores
+                and (round_idx + 1) % self.adaptive_allocator.evaluation_period == 0
+            ):
+                allocations = self.adaptive_allocator.allocate(tolerance_scores)
+                for client_key, allocation in allocations.items():
+                    client_id = int(client_key)
+                    base_strength = max(
+                        self.config.fingerprint.embedding_strength,
+                        self.config.fingerprint.min_strength,
+                    )
+                    adaptive_ratio = float(allocation) / max(
+                        self.adaptive_allocator.beta,
+                        1e-8,
+                    )
+                    adaptive_ratio = max(0.0, min(1.0, adaptive_ratio))
+                    protection_strengths[client_id] = max(
+                        self.config.fingerprint.min_strength,
+                        self.config.fingerprint.min_strength
+                        + (base_strength - self.config.fingerprint.min_strength)
+                        * adaptive_ratio,
+                    )
 
             if (round_idx + 1) % self.config.system.save_frequency == 0:
                 self.server.evaluate(self.data_manager.get_test_loader())
@@ -312,7 +463,7 @@ class FedTrackerPro:
         if not candidate_clients:
             return False, None, 0.0
 
-        matched_id: Optional[int] = candidate_clients[0] if candidate_clients else None
+        matched_id: Optional[int] = None
         similarity = 1.0
 
         if self.fingerprint_registry is not None:
@@ -328,6 +479,8 @@ class FedTrackerPro:
             matched_id, similarity = self.fingerprint_registry.identify_client(
                 suspicious_model, candidate_clients
             )
+            if matched_id == -1:
+                matched_id = None
             level1_threshold = (
                 self.config.verification.level1_threshold
                 if level1_threshold_override is None
@@ -336,14 +489,16 @@ class FedTrackerPro:
             if similarity < level1_threshold:
                 return False, None, 0.0
 
-        if self.crypto_verifier is not None:
+        if self.crypto_verifier is not None or self.crypto_verifiers:
             local_crypto_result: Dict[str, object] = (
-                {"is_valid": False} if crypto_result is None else crypto_result
+                {"is_valid": False} if crypto_result is None else dict(crypto_result)
             )
             if crypto_result is None:
                 try:
-                    local_crypto_result = self.crypto_verifier.verify_model(
-                        suspicious_model
+                    local_crypto_result = self._verify_crypto_model(
+                        suspicious_model,
+                        preferred_client_id=matched_id,
+                        candidate_clients=candidate_clients,
                     )
                 except Exception:
                     if enforce_crypto:
@@ -353,6 +508,10 @@ class FedTrackerPro:
                 return False, None, similarity
 
             signed_client = local_crypto_result.get("client_id")
+            if signed_client is not None:
+                signed_client = int(signed_client)
+                if matched_id is None:
+                    matched_id = signed_client
             if (
                 enforce_crypto
                 and self.config.verification.cross_verify_client_id
@@ -361,6 +520,9 @@ class FedTrackerPro:
                 and matched_id != signed_client
             ):
                 return False, None, similarity
+
+        if matched_id is None and candidate_clients:
+            matched_id = candidate_clients[0]
 
         if self.watermarker is not None:
             wm_accuracy = watermark_accuracy
@@ -400,6 +562,47 @@ class FedTrackerPro:
         os.makedirs(checkpoint_dir, exist_ok=True)
         path = os.path.join(checkpoint_dir, f"checkpoint_round{round_num}.pth")
         self.server.save_checkpoint(path)
+        try:
+            checkpoint = torch.load(path, map_location="cpu")
+            checkpoint["crypto_state"] = {
+                cid: verifier.export_state()
+                for cid, verifier in self.crypto_verifiers.items()
+            }
+            torch.save(checkpoint, path)
+        except Exception as exc:
+            self.logger.warning(f"Failed to persist crypto state: {exc}")
+
+    def load_checkpoint(self, path: str) -> None:
+        """加载检查点并恢复可用的密码学状态。"""
+        if self.server is None:
+            raise RuntimeError("Server is not initialized")
+        self.server.load_checkpoint(path)
+        self.global_model = self.server.global_model
+
+        try:
+            checkpoint = torch.load(path, map_location="cpu")
+        except Exception as exc:
+            self.logger.warning(f"Failed to load checkpoint payload: {exc}")
+            return
+
+        crypto_state = checkpoint.get("crypto_state")
+        if not isinstance(crypto_state, dict):
+            return
+
+        for key, state in crypto_state.items():
+            try:
+                client_id = int(key)
+            except Exception:
+                continue
+            verifier = self.crypto_verifiers.get(client_id)
+            if verifier is None:
+                continue
+            try:
+                verifier.load_state(state)
+            except Exception as exc:
+                self.logger.warning(
+                    f"Failed to restore crypto state for client {client_id}: {exc}"
+                )
 
     def _select_robustness_victim_client(self) -> int:
         """选择用于鲁棒性评估的受害客户端。
@@ -467,9 +670,13 @@ class FedTrackerPro:
             attacked_model = attack.attack(victim_model, **kwargs)
             crypto_result: Optional[Dict[str, object]] = None
             watermark_accuracy: Optional[float] = None
-            if self.crypto_verifier is not None:
+            if self.crypto_verifier is not None or self.crypto_verifiers:
                 try:
-                    crypto_result = self.crypto_verifier.verify_model(attacked_model)
+                    crypto_result = self._verify_crypto_model(
+                        attacked_model,
+                        preferred_client_id=victim_client_id,
+                        candidate_clients=[victim_client_id],
+                    )
                 except Exception:
                     crypto_result = {"is_valid": False}
 
@@ -502,7 +709,7 @@ class FedTrackerPro:
             attack_name = attack.get_attack_name()
             results[attack_name] = 1.0 if is_owner else 0.0
 
-            if self.crypto_verifier is not None:
+            if self.crypto_verifier is not None or self.crypto_verifiers:
                 crypto_valid = bool((crypto_result or {}).get("is_valid", False))
                 results[f"{attack_name}_crypto_pass_rate"] = (
                     1.0 if crypto_valid else 0.0

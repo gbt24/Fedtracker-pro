@@ -30,17 +30,20 @@ class CryptographicVerification:
         strength: float = 0.01,
         device: str = "cuda",
     ) -> None:
-        _ = hash_algorithm
+        if hash_algorithm.lower() != "sha256":
+            raise ValueError("Only sha256 is currently supported")
         if strength <= 0:
             raise ValueError("strength must be greater than 0")
         self.crypto_manager = CryptoManager(key_size=key_size, scheme=scheme)
         self.crypto_manager.generate_keypair()
+        self.hash_algorithm = hash_algorithm.lower()
         self.strength = strength
         self.device = (
             device if torch.cuda.is_available() and device.startswith("cuda") else "cpu"
         )
         self.signature_num_bits: int | None = None
         self.expected_signature: bytes | None = None
+        self.embedded_signature: bytes | None = None
         self.expected_bits: torch.Tensor | None = None
         self.signed_message: Dict[str, Any] | None = None
         self.embedded_model_hash: str | None = None
@@ -124,7 +127,8 @@ class CryptographicVerification:
             signature_bytes,
             num_bits=self.signature_num_bits,
         )
-        self.expected_signature = signature_bytes
+        self.expected_signature = signature
+        self.embedded_signature = signature_bytes
         signed_model = self._embed_signature_bits(
             model, signature_bytes, self.signature_num_bits
         )
@@ -135,6 +139,7 @@ class CryptographicVerification:
         """验证模型中嵌入签名与当前模型状态是否匹配。"""
         if (
             self.expected_signature is None
+            or self.embedded_signature is None
             or self.expected_bits is None
             or self.signed_message is None
             or self.signature_num_bits is None
@@ -143,15 +148,57 @@ class CryptographicVerification:
         current_message = self._build_message(model)
         extracted_bits = self._extract_signature_bits(model, self.signature_num_bits)
         signature = self.crypto_manager.decode_bits_to_signature(extracted_bits)
-        is_valid = (
-            bool(torch.equal(extracted_bits, self.expected_bits))
-            and current_message["model_hash"] == self.embedded_model_hash
+        signature_authentic = self.crypto_manager.verify(
+            self.signed_message, self.expected_signature
         )
+        bits_match = bool(torch.equal(extracted_bits, self.expected_bits))
+        hash_matches = current_message["model_hash"] == self.embedded_model_hash
+        is_valid = signature_authentic and bits_match and hash_matches
         result: Dict[str, Any] = {
             "is_valid": is_valid,
             "signature": signature,
             "message": current_message,
+            "signature_authentic": signature_authentic,
+            "bits_match": bits_match,
+            "hash_match": hash_matches,
         }
         if "client_id" in self.signed_message:
             result["client_id"] = self.signed_message["client_id"]
         return result
+
+    def export_state(self) -> Dict[str, Any]:
+        """导出可序列化的验证状态。"""
+        return {
+            "public_key": self.crypto_manager.public_key,
+            "signature_num_bits": self.signature_num_bits,
+            "expected_signature": self.expected_signature,
+            "embedded_signature": self.embedded_signature,
+            "expected_bits": None
+            if self.expected_bits is None
+            else self.expected_bits.detach().cpu(),
+            "signed_message": self.signed_message,
+            "embedded_model_hash": self.embedded_model_hash,
+            "strength": self.strength,
+            "hash_algorithm": self.hash_algorithm,
+        }
+
+    def load_state(self, state: Dict[str, Any]) -> None:
+        """恢复导出的验证状态。"""
+        public_key = state.get("public_key")
+        if public_key is not None:
+            self.crypto_manager.public_key = public_key
+        self.signature_num_bits = state.get("signature_num_bits")
+        self.expected_signature = state.get("expected_signature")
+        self.embedded_signature = state.get("embedded_signature")
+        expected_bits = state.get("expected_bits")
+        if expected_bits is not None and not isinstance(expected_bits, torch.Tensor):
+            expected_bits = torch.tensor(expected_bits, dtype=torch.float32)
+        self.expected_bits = expected_bits
+        self.signed_message = state.get("signed_message")
+        self.embedded_model_hash = state.get("embedded_model_hash")
+        saved_strength = state.get("strength")
+        if isinstance(saved_strength, (int, float)) and saved_strength > 0:
+            self.strength = float(saved_strength)
+        saved_hash_algorithm = state.get("hash_algorithm")
+        if isinstance(saved_hash_algorithm, str):
+            self.hash_algorithm = saved_hash_algorithm

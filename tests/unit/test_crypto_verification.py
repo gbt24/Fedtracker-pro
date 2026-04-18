@@ -66,6 +66,10 @@ class TestCryptographicVerification(unittest.TestCase):
         with self.assertRaises(ValueError):
             CryptographicVerification(device="cpu", strength=0.0)
 
+    def test_invalid_hash_algorithm_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            CryptographicVerification(device="cpu", hash_algorithm="sha1")
+
 
 if __name__ == "__main__":
     unittest.main()

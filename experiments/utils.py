@@ -91,6 +91,11 @@ def _get_input_channels(dataset_name: str) -> int:
 
 def build_model_from_config(config: Config):
     """根据配置构建分类模型。"""
+    if config.model.pretrained:
+        raise ValueError(
+            "Pretrained initialization is not supported for current model builders"
+        )
+
     model_name = config.model.name.lower()
     num_classes = config.model.num_classes
     input_channels = _get_input_channels(config.data.dataset)

@@ -36,6 +36,10 @@ class ContinualLearningWatermark(BaseWatermark):
         self.gem_margin = gem_margin
         self.episodic_memory: list[Tuple[torch.Tensor, torch.Tensor]] = []
 
+    def reset_memory(self) -> None:
+        """清空 episodic memory，避免跨客户端样本泄漏。"""
+        self.episodic_memory = []
+
     def generate_trigger_set(
         self,
         data_loader: Optional[torch.utils.data.DataLoader] = None,
@@ -124,7 +128,24 @@ class ContinualLearningWatermark(BaseWatermark):
                 output_wm = model(trigger_data)
                 loss_wm = F.cross_entropy(output_wm, trigger_targets)
 
-                loss = main_task_weight * loss_main + watermark_weight * loss_wm
+                replay_loss = torch.tensor(0.0, device=self.device)
+                if self.episodic_memory:
+                    mem_data = torch.cat(
+                        [item[0] for item in self.episodic_memory], dim=0
+                    )
+                    mem_target = torch.cat(
+                        [item[1] for item in self.episodic_memory], dim=0
+                    )
+                    mem_data = mem_data.to(self.device)
+                    mem_target = mem_target.to(self.device)
+                    replay_output = model(mem_data)
+                    replay_loss = F.cross_entropy(replay_output, mem_target)
+
+                loss = (
+                    main_task_weight * loss_main
+                    + watermark_weight * loss_wm
+                    + self.gem_margin * replay_loss
+                )
                 loss.backward()
                 optimizer.step()
 

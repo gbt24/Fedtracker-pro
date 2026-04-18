@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -163,6 +164,27 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertEqual(mock_manager.call_args.kwargs["pin_memory"], True)
 
+    def test_initialize_rejects_unsupported_watermark_type(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=2)
+        config.watermark.enabled = True
+        config.watermark.type = "unknown"
+
+        framework = FedTrackerPro(config)
+        with self.assertRaises(ValueError):
+            framework.initialize(
+                TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+            )
+
+    def test_initialize_rejects_unsupported_fingerprint_type(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=2)
+        config.fingerprint.type = "unknown"
+
+        framework = FedTrackerPro(config)
+        with self.assertRaises(ValueError):
+            framework.initialize(
+                TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+            )
+
     def test_train_one_round_updates_server_round(self) -> None:
         framework = FedTrackerPro(self._build_config())
         framework.initialize(
@@ -313,6 +335,9 @@ class TestFedTrackerPro(unittest.TestCase):
 
         for embed_mock in mocked:
             self.assertEqual(embed_mock.call_count, 2)
+            second_call = embed_mock.call_args_list[1]
+            self.assertIn("fingerprint_strength", second_call.kwargs)
+            self.assertIn("train_loader", second_call.kwargs)
 
     def test_verify_ownership_without_defense_modules(self) -> None:
         framework = FedTrackerPro(self._build_config())
@@ -342,6 +367,158 @@ class TestFedTrackerPro(unittest.TestCase):
 
         self.assertFalse(is_owner)
         self.assertIsNone(leaker_id)
+
+    def test_verify_ownership_crypto_supports_multiple_clients(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=2)
+        config.crypto.enabled = True
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+        framework.train(num_rounds=1)
+
+        for client_id, client in enumerate(framework.clients):
+            is_owner, leaker_id, _ = framework.verify_ownership(
+                client.model,
+                candidate_clients=[client_id],
+                enforce_crypto=True,
+                enforce_watermark=False,
+            )
+            self.assertTrue(is_owner)
+            self.assertEqual(leaker_id, client_id)
+
+    def test_verify_ownership_crypto_works_without_fingerprint(self) -> None:
+        config = self._build_config()
+        config.crypto.enabled = True
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+        framework.train(num_rounds=1)
+
+        is_owner, leaker_id, _ = framework.verify_ownership(
+            framework.clients[1].model,
+            enforce_crypto=True,
+            enforce_watermark=False,
+        )
+        self.assertTrue(is_owner)
+        self.assertEqual(leaker_id, 1)
+
+    def test_verify_ownership_crypto_without_fingerprint_with_watermark(self) -> None:
+        config = self._build_config()
+        config.crypto.enabled = True
+        config.watermark.enabled = True
+
+        framework = FedTrackerPro(config)
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+        framework.train(num_rounds=1)
+
+        for client_id, client in enumerate(framework.clients):
+            is_owner, leaker_id, _ = framework.verify_ownership(
+                client.model,
+                enforce_crypto=True,
+                enforce_watermark=False,
+            )
+            self.assertTrue(is_owner)
+            self.assertEqual(leaker_id, client_id)
+
+    def test_verify_ownership_normalizes_fingerprint_unknown_client(self) -> None:
+        framework = FedTrackerPro(self._build_config_with_fingerprint(num_clients=2))
+        framework.initialize(
+            TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+        )
+
+        class _FingerprintUnknownStub:
+            identification_threshold = 0.5
+
+            def identify_client(self, suspicious_model, candidate_ids=None):
+                _ = suspicious_model, candidate_ids
+                return -1, 0.99
+
+        framework.fingerprint_registry = _FingerprintUnknownStub()
+
+        class _CryptoClientStub:
+            def verify_model(self, model: nn.Module) -> dict[str, object]:
+                _ = model
+                return {"is_valid": True, "client_id": 1}
+
+        framework.crypto_verifier = _CryptoClientStub()
+        framework.crypto_verifiers = {1: _CryptoClientStub()}
+
+        is_owner, leaker_id, _ = framework.verify_ownership(
+            TinyClassifier(),
+            candidate_clients=[0, 1],
+            enforce_crypto=True,
+            enforce_watermark=False,
+        )
+        self.assertTrue(is_owner)
+        self.assertEqual(leaker_id, 1)
+
+    def test_train_resets_watermark_memory_per_client(self) -> None:
+        config = self._build_config()
+        config.watermark.enabled = True
+        data_manager = DummyDataManager(num_clients=2)
+
+        framework = FedTrackerPro(config)
+        framework.initialize(TinyClassifier(), data_manager=data_manager)
+
+        class _WatermarkerMemoryStub:
+            def __init__(self) -> None:
+                self.memory = []
+                self.reset_count = 0
+                self.embed_before_counts = []
+
+            def reset_memory(self) -> None:
+                self.reset_count += 1
+                self.memory = []
+
+            def embed(self, model, train_loader, epochs=5, lr=0.001, **kwargs):
+                _ = train_loader, epochs, lr, kwargs
+                self.embed_before_counts.append(len(self.memory))
+                self.memory.append(1)
+                return model
+
+        framework.watermarker = _WatermarkerMemoryStub()
+        framework.train(num_rounds=1)
+
+        self.assertEqual(framework.watermarker.reset_count, 2)
+        self.assertEqual(framework.watermarker.embed_before_counts, [0, 0])
+
+    def test_checkpoint_persists_and_restores_crypto_state(self) -> None:
+        config = self._build_config_with_fingerprint(num_clients=2)
+        config.crypto.enabled = True
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config.system.checkpoint_dir = tmp_dir
+            framework = FedTrackerPro(config)
+            framework.initialize(
+                TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+            )
+            framework.train(num_rounds=1)
+            framework._save_checkpoint(1)
+
+            checkpoint_path = os.path.join(tmp_dir, "checkpoint_round1.pth")
+            payload = torch.load(checkpoint_path, map_location="cpu")
+            self.assertIn("crypto_state", payload)
+            for state in payload["crypto_state"].values():
+                self.assertNotIn("private_key", state)
+
+            framework_reloaded = FedTrackerPro(config)
+            framework_reloaded.initialize(
+                TinyClassifier(), data_manager=DummyDataManager(num_clients=2)
+            )
+            framework_reloaded.load_checkpoint(checkpoint_path)
+
+            is_owner, leaker_id, _ = framework_reloaded.verify_ownership(
+                framework.clients[1].model,
+                candidate_clients=[1],
+                enforce_crypto=True,
+                enforce_watermark=False,
+            )
+            self.assertTrue(is_owner)
+            self.assertEqual(leaker_id, 1)
 
     def test_verify_ownership_rejects_invalid_level1_override(self) -> None:
         framework = FedTrackerPro(self._build_config_with_fingerprint(num_clients=2))
